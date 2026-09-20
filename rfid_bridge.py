@@ -55,7 +55,7 @@ import mcu as mcu_module
 # Replaced with the app's release version (e.g. "0.1.0") by
 # scripts/stamp_bridge_version.py when a release is published; the copy
 # in the repository stays "dev".
-RFID_BRIDGE_VERSION = "0.3.0"
+RFID_BRIDGE_VERSION = "0.3.1"
 
 MOONRAKER_REQUEST_TIMEOUT = 5.0
 
