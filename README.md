@@ -47,9 +47,13 @@ to install it:
 3. Confirm the installation. Play Protect may ask for a check, since the app
    does not come from the Play Store.
 
-To update, install a newer APK over the old one; settings are kept. RFID
-readers are not supported on Android yet, so the Reader tab is missing in the
-settings there.
+To update, install a newer APK over the old one; settings are kept.
+
+The **RFID Tag** frame uses the phone's own NFC reader, so there is no Reader
+tab in the settings. NFC must be switched on, and the phone's NFC chip has to
+support MIFARE Classic (most phones with an NXP chip do, many with a Broadcom
+chip do not - the free app "MIFARE Classic Tool" tells you). Press **Read Tag**
+or **Write Tag**, then hold the tag to the back of the phone.
 
 ## Features
 
@@ -60,7 +64,8 @@ Runs on Windows, Linux and Android. Implemented so far:
   current state and the app version.
 - User interface in English and German; follows the system language by
   default and can be switched in **File → Settings**.
-- RFID reader selection in the settings (Windows and Linux): lists the PC/SC readers that can
+- RFID reader selection in the settings (Windows and Linux; Android uses its
+  built-in NFC reader): lists the PC/SC readers that can
   read and write RFID tags. Each reader's real capability is tested instead of
   trusting its name, and non-RFID smart card devices (e.g. a YubiKey) are never
   opened. One reader can be marked as the default reader; at startup the app
@@ -70,8 +75,9 @@ Runs on Windows, Linux and Android. Implemented so far:
   printer and one of its QIDI boxes and see what the box reports for each of
   its four slots - material, vendor, colour, and the Spoolman spool number and
   vendor stored on the RFID tag. The last chosen printer is remembered.
-- **RFID Tag** frame in the main window, below QIDI Data (Windows and Linux,
-  from the Python version): reads the filament data of the MIFARE Classic 1K
+- **RFID Tag** frame in the main window, below QIDI Data (from the Python
+  version; on Android with the phone's own NFC reader, which needs no
+  choosing, and without the QR Code frame): reads the filament data of the MIFARE Classic 1K
   tag on the default reader and writes it. A tag can be written for a new
   spool (created in Spoolman on the fly, optionally from an existing Spoolman
   filament) or for an existing Spoolman spool, or - with Spoolman switched
@@ -110,7 +116,8 @@ Runs on Windows, Linux and Android. Implemented so far:
 - **Windows** - 64-bit Windows 10 or 11. The Microsoft Visual C++
   Redistributable (x64) must be installed; it already is on most systems.
 - **Android** - Android 7.0 (API 24) or newer, any ABI (arm64, arm, x86_64).
-  RFID readers are not supported on Android yet.
+  Tags are read and written with the phone's own NFC reader, which has to
+  support MIFARE Classic.
 - **Linux** - 64-bit distribution with GTK 3 (`libgtk-3-0`). The
   executables are built on Ubuntu 24.04, so a distribution of similar
   age or newer is required.
