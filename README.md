@@ -47,7 +47,10 @@ to install it:
 3. Confirm the installation. Play Protect may ask for a check, since the app
    does not come from the Play Store.
 
-To update, install a newer APK over the old one; settings are kept.
+To update, install a newer APK over the old one; settings are kept. This works
+from version 0.3.1 on: the APKs up to 0.3.0 were each signed with a different
+key, which Android refuses to update. If you have such a version, uninstall it
+once before installing 0.3.1 (its settings are lost this one time).
 
 The **RFID Tag** frame uses the phone's own NFC reader, so there is no Reader
 tab in the settings. NFC must be switched on, and the phone's NFC chip has to
