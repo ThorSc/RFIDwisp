@@ -18,8 +18,10 @@
 #     multi_color_controller. We only observe it; we never touch the
 #     handler QIDI itself registered, so their own read logic is
 #     unaffected.
-#   - Whenever the decoded spool number for the active slot changes, or a
-#     print job starts, the spool id is POSTed to Moonraker's
+#   - The last raw read of every slot is cached. Whenever a slot becomes
+#     active, a read arrives for the active slot, or a print job starts,
+#     the spool number cached for the *active* slot is POSTed to
+#     Moonraker's
 #     "/server/spoolman/spool_id" endpoint on a background thread (never
 #     blocking the reactor). Moonraker owns the actual Spoolman
 #     conversation and consumption tracking from there.
@@ -50,6 +52,11 @@ import urllib.request
 
 import mcu as mcu_module
 
+# Replaced with the app's release version (e.g. "0.1.0") by
+# scripts/stamp_bridge_version.py when a release is published; the copy
+# in the repository stays "dev".
+RFID_BRIDGE_VERSION = "0.2.0"
+
 MOONRAKER_REQUEST_TIMEOUT = 5.0
 
 
@@ -76,6 +83,7 @@ class RFIDBridge:
             target=self._notify_worker, daemon=True)
         self._notify_thread.start()
 
+        logging.info("rfid_bridge: version %s", RFID_BRIDGE_VERSION)
         self._patch_mcu_send()
         self.printer.register_event_handler("klippy:connect", self._connect)
 
@@ -86,10 +94,14 @@ class RFIDBridge:
 
     def _patch_mcu_send(self):
         cls = mcu_module.CommandQueryWrapper
+        # A Klipper RESTART recreates all printer objects inside the same
+        # process: imported modules and this patch survive it. Always
+        # point the patch at the newest bridge instance, otherwise reads
+        # would keep going to the stale instance of the first load.
+        cls._rfid_bridge_instance = self
         if getattr(cls, '_rfid_bridge_orig_send', None) is not None:
             return  # already patched (e.g. by a prior [rfid_bridge] load)
         orig_send = cls.send
-        bridge = self
 
         def patched_send(wrapper_self, data=(), minclock=0, reqclock=0):
             resp = orig_send(wrapper_self, data, minclock, reqclock)
@@ -97,7 +109,8 @@ class RFIDBridge:
                 if (wrapper_self._response == "fm17550_read_card_return"
                         and isinstance(resp, dict)
                         and resp.get("status") == 1):
-                    bridge._handle_raw_read(resp.get("data"))
+                    cls._rfid_bridge_instance._handle_raw_read(
+                        resp.get("data"))
             except Exception:
                 logging.exception("rfid_bridge: error handling RFID response")
             return resp
@@ -130,10 +143,17 @@ class RFIDBridge:
     def _try_register_slots(self, eventtime):
         stepper_enable = self.printer.lookup_object('stepper_enable')
         for slot in list(self._pending_slots):
-            name = "box_stepper slot%d" % slot
-            try:
-                enable = stepper_enable.lookup_enable(name)
-            except Exception:
+            # Older QIDI firmware registers the stepper as "box_stepper
+            # slotN", newer firmware (Max4 01.01.06.05) as plain "slotN".
+            enable = name = None
+            for candidate in ("box_stepper slot%d" % slot, "slot%d" % slot):
+                try:
+                    enable = stepper_enable.lookup_enable(candidate)
+                except Exception:
+                    continue
+                name = candidate
+                break
+            if enable is None:
                 continue
             enable.register_state_callback(self._make_callback(slot))
             self._pending_slots.discard(slot)
@@ -145,8 +165,16 @@ class RFIDBridge:
 
     def _make_callback(self, slot):
         def callback(print_time, is_enable):
-            if is_enable:
-                self.current_slot = slot
+            if not is_enable:
+                return
+            self.current_slot = slot
+            try:
+                # Every slot's tag was read (and cached in last_raw) at
+                # startup; now that this slot is the active one, report
+                # *its* spool instead of whichever slot was read last.
+                self._report_active_slot(reason="slot_active")
+            except Exception:
+                logging.exception("rfid_bridge: error reporting active slot")
         return callback
 
     def _poll_print_state(self, eventtime):
@@ -167,13 +195,17 @@ class RFIDBridge:
         return eventtime + 2.0
 
     def _on_print_start(self):
+        self._report_active_slot(reason="print_start", force=True)
+
+    def _report_active_slot(self, reason, force=False):
+        """Report the spool cached for the currently active slot, if any."""
         slot = self.current_slot
         if slot is None:
             return
         raw = self.last_raw.get(slot)
         if raw is None:
             return
-        self._maybe_report_spool(slot, raw, reason="print_start", force=True)
+        self._maybe_report_spool(slot, raw, reason=reason, force=force)
 
     def _maybe_report_spool(self, slot, raw, reason, force=False):
         spool_id = self._decode_spool_id(raw)
@@ -227,18 +259,22 @@ class RFIDBridge:
         "Show the last raw fm17550 RFID payload captured per box slot")
 
     def cmd_RFID_BRIDGE_STATUS(self, gcmd):
+        gcmd.respond_info("rfid_bridge version %s" % RFID_BRIDGE_VERSION)
         if not self.last_raw:
             gcmd.respond_info("RFID_BRIDGE_STATUS: no data captured yet")
         else:
             for slot in sorted(self.last_raw):
                 gcmd.respond_info(
-                    "slot%d: %s" % (slot, self.last_raw[slot].hex()))
+                    "slot%d: %s (spool_id: %s)" % (
+                        slot, self.last_raw[slot].hex(),
+                        self._decode_spool_id(self.last_raw[slot])))
         gcmd.respond_info(
             "last reported spool_id: %s (reason: %s)"
             % (self.last_reported_spool_id, self.last_report_reason))
 
     def get_status(self, eventtime):
         return {
+            "version": RFID_BRIDGE_VERSION,
             "current_slot": self.current_slot,
             "registered_slots": sorted(self._registered_slots),
             "pending_slots": sorted(self._pending_slots),
@@ -249,6 +285,10 @@ class RFIDBridge:
             "last_raw_time": {
                 "slot%d" % slot: t
                 for slot, t in self.last_raw_time.items()
+            },
+            "spool_ids": {
+                "slot%d" % slot: self._decode_spool_id(data)
+                for slot, data in self.last_raw.items()
             },
             "last_reported_spool_id": self.last_reported_spool_id,
             "last_report_time": self.last_report_time,
