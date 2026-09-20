@@ -5,6 +5,69 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-09-21
+
+### Fixed
+
+- Reading and writing an RFID tag with a PC/SC reader (Windows, Linux) is fast
+  in a debugging session too. The PC/SC package starts a new isolate for every
+  single call - nine of them for one read - and with the debugger of VS Code
+  attached every isolate takes about 0.75 s, so **Read Tag** took 6 s and more
+  (0.3 s without a debugger). All PC/SC calls now run in one background isolate
+  that is started once and reused, so a read costs a few messages: 0.3 s from
+  the click to the data on screen in the same debugging session. An error of a
+  call is reported with the code of the smart card service, e.g. `PC/SC
+  SCardConnect failed (0x80100009)`.
+- **Read Tag** no longer waits for Spoolman. It used to ask Spoolman for the
+  vendors, filaments and spools one after the other before showing anything, so
+  a slow or unreachable server (5 s timeout per request) made reading a tag take
+  9 s, 15 s or more, although the tag itself is read in a fraction of a second.
+  Now the tag's data is shown at once, the three requests run at the same time
+  and complete the spool fields when they are answered (also for the weights in
+  the QIDI Data frame). Until Spoolman has said whether it knows the tag's
+  spool, **Write Tag** stays disabled, so that no new spool is created by
+  mistake. Fields that were cleared, or a spool that was picked, in the
+  meantime are left alone.
+
+### Added
+
+- **Weight** field in each slot of the QIDI Data frame, behind the Vendor in
+  Spoolman: the remaining weight of the spool on the slot's tag in whole grams, read
+  from Spoolman (all spools with one request when the app starts and whenever
+  **Read Box Data** is pressed). It stays empty without a Spoolman address, for
+  a spool Spoolman does not know or if Spoolman cannot be reached. The window is
+  wider by the new field (1060 instead of 960 logical pixels), so the frames
+  keep their room; the RFID Tag and QR Code frames still share the width 2 : 1.
+- **Ukrainian** (Українська) as a third language: all texts and messages of the
+  app are translated. It can be chosen under **File → Settings**, and the app
+  uses it if the system language is Ukrainian.
+- The language dropdown of the settings shows a small flag before each
+  language (Germany, United Kingdom, Ukraine; a globe for the system default).
+  The flags are drawn by the app, since Windows shows emoji flags as letters.
+- **Export settings …** and **Import settings …** on the General tab of the
+  settings: all settings (language, update check, default reader, printers,
+  Spoolman address and switch) go to a JSON file the user chooses and can be
+  loaded from one, e.g. to keep a backup or to move to another device. The
+  export writes what the dialog shows now (an invalid printer or address is
+  reported like with OK). An import only fills in the dialog and applies with
+  OK; settings missing in the file stay as they are, and a file that is no
+  RFID Wisp settings file, or was written by a newer version, is refused. The
+  device's own NFC reader (Android) is not part of a file. On Android the file
+  is created through the system's document dialog.
+
+### Changed
+
+- Windows and Linux: the main window opens centred on the first (primary)
+  monitor and exactly as high as its content, without empty space below the
+  RFID Tag frame. It follows the content while the app runs: showing all slots
+  in the QIDI Data frame makes the window taller (hiding them makes it lower
+  again), so the RFID Tag frame stays fully visible. A maximised window is
+  left alone, and the window never gets taller than the screen.
+- The Spool dropdown of the RFID Tag frame shows the colour of each spool's
+  filament as a swatch, like the Spoolman filament dropdown.
+- The spool number in the QIDI Data frame is left-aligned like the other
+  fields, no longer centred.
+
 ## [0.3.1] - 2026-09-20
 
 ### Fixed
