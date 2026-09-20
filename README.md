@@ -65,8 +65,9 @@ Runs on Windows, Linux and Android. Implemented so far:
 - Splash screen with the logo while the app starts up.
 - Main window with a menu bar (File, Help) and a status bar showing the
   current state and the app version.
-- User interface in English and German; follows the system language by
-  default and can be switched in **File → Settings**.
+- User interface in English, German and Ukrainian; follows the system
+  language by default and can be switched in **File → Settings**, where each
+  language is shown with its flag.
 - RFID reader selection in the settings (Windows and Linux; Android uses its
   built-in NFC reader): lists the PC/SC readers that can
   read and write RFID tags. Each reader's real capability is tested instead of
@@ -93,6 +94,8 @@ Runs on Windows, Linux and Android. Implemented so far:
   code 20 x 20 mm) where you choose in the system's save dialog; **Print**
   prints that page on the default printer, and is disabled if there is no
   printer.
+- Export and import of all settings as a JSON file, in the settings dialog.
+  An imported file only fills in the dialog and applies with **OK**.
 - Printer management in the settings: any number of printers, each with a
   name and the address of its Moonraker service.
 - Spoolman settings: the server address, and a switch to use Spoolman or not.
@@ -129,8 +132,14 @@ Runs on Windows, Linux and Android. Implemented so far:
 
 1. Start the app; the main window appears once the splash screen is done.
 2. Open **File → Settings …**. The settings are grouped on tabs:
-   - **General** - language (system default, English or German) and whether
-     to check for a new version at startup.
+   - **General** - language (system default, English, German or Ukrainian) and whether
+     to check for a new version at startup. **Export settings …** saves all
+     settings (language, update check, reader, printers, Spoolman) to a JSON
+     file you choose; **Import settings …** loads them from such a file, e.g.
+     to move to another computer or phone or to keep a backup. An import only
+     fills in the dialog: like every other change it applies when you press
+     **OK** and is dropped by **Cancel**. Settings the file does not contain
+     stay as they are.
    - **Reader** (Windows and Linux only) - pick one of the RFID readers that were found (use the
      refresh button to search again after plugging one in). Tick **Use as
      default reader** to mark the selected reader as the default; only one
@@ -157,7 +166,10 @@ Runs on Windows, Linux and Android. Implemented so far:
    - Each slot shows its **Material**, **Vendor** and **Color** as reported by
      the box, the Spoolman spool **Number** and the **Vendor in Spoolman**, both
      read from the RFID tag (they need the optional `rfid_bridge` module on the
-     printer; the vendor name also needs a Spoolman address in the settings).
+     printer; the vendor name also needs a Spoolman address in the settings),
+     and the **Weight**: the remaining weight of that spool in whole grams, read from
+     Spoolman (empty without a Spoolman address or for a spool Spoolman does not
+     know). **Read Box Data** reads it again.
    - The dot in front of a slot is red if the slot is empty, green if it holds
      filament and cyan if it is feeding the extruder. Only slot 0 is shown by
      default; **Show all slots** shows all four.
