@@ -5,6 +5,17 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-09-20
+
+### Fixed
+
+- Android: the APK is now signed with one fixed key, so a newer version can be
+  installed over the previous one and keeps the settings (printers, Spoolman).
+  Until 0.3.0 every release was signed with a different, automatically created
+  debug key, and Android refuses to update an app to a version signed with
+  another key. Uninstall 0.3.0 (or older) once before installing 0.3.1; its
+  settings are lost this one time.
+
 ## [0.3.0] - 2026-09-20
 
 ### Added
