@@ -5,6 +5,18 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-09-20
+
+### Added
+
+- Android: the **RFID Tag** frame reads and writes MIFARE Classic 1K tags with
+  the phone's own NFC reader (Android's `MifareClassic`, no code of the GPL
+  licensed "MIFARE Classic Tool" is used). The reader is always used, so there
+  is no Reader tab; the frame asks to hold the tag to the back of the phone
+  after **Read Tag** or **Write Tag** was pressed and waits 20 seconds for it.
+  The status bar tells if NFC is switched off or the phone has no NFC. The QR
+  Code frame is not shown on Android. Tested on a Samsung Galaxy S25 Ultra.
+
 ## [0.2.0] - 2026-09-20
 
 ### Added
