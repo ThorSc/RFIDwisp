@@ -1,9 +1,8 @@
 # RFID Wisp
 
-# Still in development - reading and writing tags is not implemented yet
-
 A cross-platform (Windows/Linux/Android) app for reading and writing the
-MIFARE Classic 1K RFID tags used by QIDI's multi-color filament boxes.
+MIFARE Classic 1K RFID tags used by QIDI's multi-color filament boxes (the
+QIDI Boxes that are connected to QIDI Plus4 and QIDI Max4 printers).
 
 This repository hosts only the built releases; there is no source code here.
 The desktop versions are portable downloads - no installation is required.
@@ -71,6 +70,20 @@ Runs on Windows, Linux and Android. Implemented so far:
   printer and one of its QIDI boxes and see what the box reports for each of
   its four slots - material, vendor, colour, and the Spoolman spool number and
   vendor stored on the RFID tag. The last chosen printer is remembered.
+- **RFID Tag** frame in the main window, below QIDI Data (Windows and Linux,
+  from the Python version): reads the filament data of the MIFARE Classic 1K
+  tag on the default reader and writes it. A tag can be written for a new
+  spool (created in Spoolman on the fly, optionally from an existing Spoolman
+  filament) or for an existing Spoolman spool, or - with Spoolman switched
+  off - from material, vendor, colour and a spool number entered by hand. A
+  write is read back to check it.
+- **QR Code** frame beside the RFID Tag frame (a third of the width, as high as
+  the RFID Tag frame): the QR code of the spool shown there - spool number,
+  the QIDI box material, vendor and colour, and the Spoolman vendor and colour
+  - with the app logo in its centre. **Export** saves it as a DIN A4 PDF (QR
+  code 20 x 20 mm) where you choose in the system's save dialog; **Print**
+  prints that page on the default printer, and is disabled if there is no
+  printer.
 - Printer management in the settings: any number of printers, each with a
   name and the address of its Moonraker service.
 - Spoolman settings: the server address, and a switch to use Spoolman or not.
@@ -91,6 +104,9 @@ Runs on Windows, Linux and Android. Implemented so far:
     `sudo systemctl enable --now pcscd`); this also installs `libpcsclite1`,
     which the app loads at runtime. Your reader's CCID/ACS driver is needed
     too if the generic CCID driver does not recognize it.
+- Optional, to print the QR code of a spool: a printer that is set up in the
+  system (on Linux through CUPS). Saving the QR code as a PDF file needs
+  nothing.
 - **Windows** - 64-bit Windows 10 or 11. The Microsoft Visual C++
   Redistributable (x64) must be installed; it already is on most systems.
 - **Android** - Android 7.0 (API 24) or newer, any ABI (arm64, arm, x86_64).
@@ -135,18 +151,67 @@ Runs on Windows, Linux and Android. Implemented so far:
    - The dot in front of a slot is red if the slot is empty, green if it holds
      filament and cyan if it is feeding the extruder. Only slot 0 is shown by
      default; **Show all slots** shows all four.
-4. At startup the app checks that the default reader is connected and
+   While the app checks a printer, reads a box or reads or writes a tag, the
+   mouse pointer turns into the busy pointer (spinning ring) over the whole
+   window.
+4. Below it (Windows and Linux) is the **RFID Tag** frame, which works with the
+   tag on the default reader (see the **Reader** tab of the settings; without
+   a default reader both buttons are disabled):
+   - **Read Tag** reads the tag and shows what is on it. A blank tag gives a
+     blank form, a tag that was not written by this app is reported as such.
+     Once the tag is taken off the reader the fields are cleared again (the
+     reader is asked once a second).
+   - **Write Tag** writes the values in the frame to the tag. The values stay
+     afterwards, also when the tag is taken off, so the next tag can be
+     written right away. The tag is read
+     back to check that it holds the data. The data goes to sector 1, where
+     the QIDI box expects it.
+   - The frame has these rows: the buttons; the **Spool**; the **Spoolman
+     filament**; a **QIDI Data** group (**Material**, **Vendor**, **Color**),
+     which is what is written for the QIDI box; and a **Spoolman Data** group
+     (**Spool number**, **Spoolman vendor**, **Weight**).
+   - With **Use Spoolman** on (and an address set), pick an existing **Spool**
+     or keep **+ New spool …**. For a new spool pick a **Spoolman filament**
+     to prefill material, vendor, colour and weight, or choose a **Spoolman
+     vendor** and let the app find the matching filament. Writing a new spool
+     creates it in Spoolman first and shows it as the selected spool from then
+     on, so more copies of the same tag do not create more spools. For an
+     existing spool the weight field shows its remaining weight (read-only).
+   - Without Spoolman, only the **QIDI Data** group is shown: choose
+     **Material**, **Vendor** and **Color** and enter the **Spool number**
+     (0-999) yourself.
+   - Beside it, a third of the width and as high as the RFID Tag frame, is the
+     **QR Code** frame. As soon as the RFID Tag frame shows a spool (read from
+     a tag, picked in Spoolman, written, or entered by hand with a spool
+     number) it shows the QR code of that spool, with the app logo in its
+     centre. The code says:
+
+         Number: <spool number>
+         QIDI Material: <material>
+         QIDI Vendor: <vendor>
+         QIDI Color: <colour, #RRGGBB>
+         Spoolman Vendor: <vendor in Spoolman>
+         Spoolman Color: <colour in Spoolman, #RRGGBB>
+
+     The Spoolman lines stay empty without Spoolman. **Export** makes a
+     DIN A4 PDF with the code (20 x 20 mm, top left; to its right, one below
+     the other, in 14 pt: the spool number, the Spoolman material and the
+     Spoolman vendor, all inside a light frame; a line too long for the page is cut short with `…`) and shows the system's
+     save dialog to choose where to save it. **Print** prints the same page
+     on the default printer; it is disabled while there is no printer (the
+     app looks again when its window is activated).
+5. At startup the app checks that the default reader is connected and
    usable, while the splash screen is shown. The status bar then shows
    `Reader: <name>`, or a red message if the reader is missing, is not an
    RFID reader, or has a tag on it that is not a readable MIFARE Classic 1K.
    A reader with no tag on it counts as usable, because RFID support can only
    be verified with a tag present.
-5. At startup the app also checks in the background whether a newer release
+6. At startup the app also checks in the background whether a newer release
    is available (unless switched off in the settings). If so, a link
    "New version … available" appears in the status bar; clicking it opens
    the download page. The check only asks GitHub for the latest release
    number; nothing else is sent.
-6. **File → Exit** closes the app (desktop only), **Help → About** shows
+7. **File → Exit** closes the app (desktop only), **Help → About** shows
    version and license information.
 
 ## Klipper integration (`rfid_bridge`)
@@ -170,19 +235,29 @@ and automatically keep Fluidd/Spoolman's active spool in sync, install
                                             # local requests
    ```
 
-3. Restart Klipper (`RESTART` or `FIRMWARE_RESTART`).
+3. Restart Klipper (`RESTART` or `FIRMWARE_RESTART`). When you replace an
+   already installed `rfid_bridge.py` with a newer one, restart the Klipper
+   *service* instead (for example with `sudo systemctl restart klipper`, or
+   by rebooting the printer): `RESTART` keeps Klipper's process and does not
+   reload a Python module that was already imported, so the old code would
+   keep running.
 
 It works by capturing the raw 16-byte `fm17550_read_card_return` response
 QIDI's own firmware already reads for each box slot - the same data the
 box uses internally - by monkey-patching `mcu.CommandQueryWrapper.send` in
 memory for the lifetime of the Klipper process, and by tracking the active
-`box_stepper slotN` via the public `stepper_enable` callback API. The
-patch is purely observational (it never changes QIDI's own
-request/response, and never modifies a QIDI-shipped file on disk) and is
-automatically undone by any Klipper `RESTART`/`FIRMWARE_RESTART`.
+slot (`slotN` in `stepper_enable`, `box_stepper slotN` on older firmware)
+via the public `stepper_enable` callback API. The patch is purely
+observational (it never changes QIDI's own request/response, and never
+modifies a QIDI-shipped file on disk) and is gone as soon as the Klipper
+service is restarted. A Klipper `RESTART`/`FIRMWARE_RESTART` does not remove
+it: Klipper keeps its process and the modules it already imported, so the
+bridge simply carries on with the reloaded configuration.
 
 Query the captured data via `RFID_BRIDGE_STATUS` in the Klipper console, or
-`GET /printer/objects/query?rfid_bridge` through Moonraker.
+`GET /printer/objects/query?rfid_bridge` through Moonraker. Both also show the
+version of `rfid_bridge.py`, which is the version of the RFID Wisp release it
+was downloaded from.
 
 ### Automatic active-spool reporting to Moonraker/Spoolman
 
@@ -193,8 +268,10 @@ spool shown in Fluidd/Spoolman follows the box automatically - no manual
 selection needed. This requires the `[spoolman]` component to be configured
 in `moonraker.conf`.
 
-It reports whenever the decoded spool number for the currently active slot
-changes, and again whenever a print job starts (detected by polling
+It caches the last RFID read of every slot and reports the spool number of
+whichever slot is currently active: whenever a different slot becomes active
+(e.g. on a tool change), whenever a read arrives for the active slot, and
+again whenever a print job starts (detected by polling
 `print_stats`, since Klipper has no dedicated print-start event). The HTTP
 call runs on a background thread via a queue so a slow or unreachable
 Moonraker never blocks the reactor; an unset/blank tag is reported as
