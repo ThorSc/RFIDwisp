@@ -5,6 +5,31 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-09-21
+
+### Added
+
+- Windows: `RFIDwisp-windows-x64-setup.exe`, an installer (built with Inno
+  Setup) alongside the existing portable `.zip`. It adds a Start menu entry
+  and an optional desktop icon, uninstalls cleanly through Windows' "Add or
+  remove programs", and installing a newer version upgrades an existing
+  install in place.
+- Linux (Debian/Ubuntu): `RFIDwisp-linux-x64.deb` alongside the existing
+  portable `.tar.gz`. `apt install ./RFIDwisp-linux-x64.deb` adds a menu entry
+  and puts `rfid_wisp` on the `PATH`; `apt remove rfid-wisp` uninstalls it.
+
+### Fixed
+
+- Reading or writing an RFID tag with the NFC reader built into an Android
+  device failed with "Anmeldung an Sektor 1 nicht möglich" or "Der Tag konnte
+  nicht gelesen werden" whenever the first of the default keys did not open the
+  tag. Between key attempts the code only reopened the tag when
+  `MifareClassic.isConnected()` said it was disconnected, but that flag only
+  tracks whether `close()` was called, not whether the RF link to the tag
+  survived the failed authentication - so later keys, including the one that
+  actually matches the tag, were tried over a broken link and failed too. The
+  tag is now always closed and reconnected between attempts.
+
 ## [0.4.0] - 2026-09-21
 
 ### Fixed
