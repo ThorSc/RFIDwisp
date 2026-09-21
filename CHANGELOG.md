@@ -5,6 +5,17 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-09-22
+
+### Changed
+
+- Linux: the requirements in the README now describe two pitfalls that make an
+  ACS ACR122U show up in `lsusb` but not in the app: the kernel driver
+  `pn533_usb` claiming the reader (`Can't claim interface ... LIBUSB_ERROR_BUSY`
+  in `pcscd`), and `pcscd`'s polkit rule denying users outside an active local
+  session (`Access denied`), together with the fix for each and `pcsc_scan` as
+  a check.
+
 ## [0.5.0] - 2026-09-21
 
 ### Added
