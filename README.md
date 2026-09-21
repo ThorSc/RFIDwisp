@@ -118,6 +118,23 @@ Runs on Windows, Linux and Android. Implemented so far:
     `sudo systemctl enable --now pcscd`); this also installs `libpcsclite1`,
     which the app loads at runtime. Your reader's CCID/ACS driver is needed
     too if the generic CCID driver does not recognize it.
+    Two Linux-specific pitfalls with the ACR122U (it shows up in `lsusb`
+    but not in the app):
+    - The kernel driver `pn533_usb` claims the reader and blocks `pcscd`
+      (`pcscd --foreground --debug` reports `Can't claim interface ...
+      LIBUSB_ERROR_BUSY`). Blacklist it in
+      `/etc/modprobe.d/blacklist-pn533.conf` (`blacklist pn533_usb`,
+      `blacklist pn533`, `blacklist nfc`), run `sudo update-initramfs -u`
+      and replug the reader or reboot.
+    - `pcscd` uses polkit and only serves users in an active local
+      session; over SSH or in a remote session `pcsc_scan` fails with
+      `Access denied`. Allow your user in
+      `/etc/polkit-1/rules.d/99-pcscd.rules`: for the actions
+      `org.debian.pcsc-lite.access_pcsc` and
+      `org.debian.pcsc-lite.access_card` return `polkit.Result.YES` for
+      your user (or group), then `sudo systemctl restart polkit pcscd`.
+    To check whether the reader is visible to PC/SC at all, independent of
+    this app, run `pcsc_scan` (package `pcsc-tools`).
 - Optional, to print the QR code of a spool: a printer that is set up in the
   system (on Linux through CUPS). Saving the QR code as a PDF file needs
   nothing.
