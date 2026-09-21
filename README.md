@@ -16,8 +16,10 @@ Each release provides one archive per platform - grab yours from the
 
 | Platform | File | Notes |
 |----------|------|-------|
-| Windows (x64) | `RFIDwisp-windows-x64.zip`  | Unzip, then run `rfid_wisp.exe` from the extracted folder. |
-| Linux (x64)   | `RFIDwisp-linux-x64.tar.gz` | `tar xzf RFIDwisp-linux-x64.tar.gz`, then run `./RFIDwisp-linux-x64/rfid_wisp`. |
+| Windows (x64) | `RFIDwisp-windows-x64-setup.exe` | Installer: Start menu entry, optional desktop icon, clean uninstall. Installing a newer version upgrades the existing install. |
+| Windows (x64) | `RFIDwisp-windows-x64.zip`  | Portable: unzip, then run `rfid_wisp.exe` from the extracted folder. |
+| Linux (x64, Debian/Ubuntu) | `RFIDwisp-linux-x64.deb` | Installer: `sudo apt install ./RFIDwisp-linux-x64.deb` adds a menu entry (`rfid_wisp` on PATH); `sudo apt remove rfid-wisp` uninstalls. |
+| Linux (x64)   | `RFIDwisp-linux-x64.tar.gz` | Portable, any distribution: `tar xzf RFIDwisp-linux-x64.tar.gz`, then run `./RFIDwisp-linux-x64/rfid_wisp`. |
 | Android       | `RFIDwisp-android.apk`      | Open it on the phone and allow the installation, see "Android: installing the APK" below. |
 | Printer (Klipper) | `rfid_bridge.py` | Optional companion module for the printer, not for the PC - see "Klipper integration" below. |
 
