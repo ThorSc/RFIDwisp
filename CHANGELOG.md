@@ -5,6 +5,21 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-09-22
+
+### Added
+
+- Writing an RFID tag now also stores the spool's last known weight, rounded
+  to whole grams, in bytes 11-12: the initial weight for a new spool, the
+  remaining weight otherwise. Reading a tag shows that weight back in the
+  Weight field.
+
+### Fixed
+
+- The "Use Spoolman" checkbox in Settings showed checked even with no
+  Spoolman address configured, which does nothing until an address is set.
+  It now starts unchecked until an address is entered.
+
 ## [0.5.2] - 2026-09-22
 
 ### Added
