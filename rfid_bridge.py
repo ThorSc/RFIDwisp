@@ -43,6 +43,7 @@
 # Query via Moonraker: GET /printer/objects/query?rfid_bridge
 # Or:  RFID_BRIDGE_STATUS
 
+import hashlib
 import json
 import logging
 import queue
@@ -52,10 +53,31 @@ import urllib.request
 
 import mcu as mcu_module
 
-# Replaced with the app's release version (e.g. "0.1.0") by
-# scripts/stamp_bridge_version.py when a release is published; the copy
-# in the repository stays "dev".
-RFID_BRIDGE_VERSION = "0.5.1"
+# Version of this file, independent of the app's version, so that copies
+# moved back and forth between the repository and the printer can be told
+# apart: the higher number is the newer one. The patch number is raised
+# automatically when a commit changes this file (.githooks/pre-commit,
+# enabled with `git config core.hooksPath .githooks`); raise major or minor
+# by hand. The release workflow refuses a changed file with an unchanged
+# version or a lower one than the last release
+# (scripts/check_bridge_version.py).
+RFID_BRIDGE_VERSION = "1.0.0"
+
+
+def _own_checksum():
+    # Short checksum of this file with normalized line endings, so a copy
+    # that went through Windows (CRLF) still matches. Two copies with the
+    # same version but different checksums mean one was edited without
+    # raising the version.
+    try:
+        with open(__file__, "rb") as f:
+            data = f.read().replace(b"\r\n", b"\n")
+        return hashlib.sha256(data).hexdigest()[:8]
+    except Exception:
+        return "unknown"
+
+
+RFID_BRIDGE_CHECKSUM = _own_checksum()
 
 MOONRAKER_REQUEST_TIMEOUT = 5.0
 
@@ -83,7 +105,8 @@ class RFIDBridge:
             target=self._notify_worker, daemon=True)
         self._notify_thread.start()
 
-        logging.info("rfid_bridge: version %s", RFID_BRIDGE_VERSION)
+        logging.info("rfid_bridge: version %s (checksum %s)",
+                     RFID_BRIDGE_VERSION, RFID_BRIDGE_CHECKSUM)
         self._patch_mcu_send()
         self.printer.register_event_handler("klippy:connect", self._connect)
 
@@ -259,7 +282,8 @@ class RFIDBridge:
         "Show the last raw fm17550 RFID payload captured per box slot")
 
     def cmd_RFID_BRIDGE_STATUS(self, gcmd):
-        gcmd.respond_info("rfid_bridge version %s" % RFID_BRIDGE_VERSION)
+        gcmd.respond_info("rfid_bridge version %s (checksum %s)" % (
+            RFID_BRIDGE_VERSION, RFID_BRIDGE_CHECKSUM))
         if not self.last_raw:
             gcmd.respond_info("RFID_BRIDGE_STATUS: no data captured yet")
         else:
@@ -275,6 +299,7 @@ class RFIDBridge:
     def get_status(self, eventtime):
         return {
             "version": RFID_BRIDGE_VERSION,
+            "checksum": RFID_BRIDGE_CHECKSUM,
             "current_slot": self.current_slot,
             "registered_slots": sorted(self._registered_slots),
             "pending_slots": sorted(self._pending_slots),
