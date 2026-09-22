@@ -5,6 +5,18 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.2] - 2026-09-22
+
+### Added
+
+- Klipper module `rfid_bridge.py` has a version of its own (1.0.0),
+  independent of the app's, so copies moved back and forth between the
+  repository and the printer can be told apart: the higher version is the
+  newer one. `RFID_BRIDGE_STATUS`, Klipper's log and the module's status also
+  show a checksum of the file, which differs between two copies of the same
+  version when one was edited without raising it. The published file is no
+  longer stamped with the app's version.
+
 ## [0.5.1] - 2026-09-22
 
 ### Changed
