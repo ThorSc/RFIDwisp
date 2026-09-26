@@ -5,6 +5,18 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-09-26
+
+### Fixed
+
+- `rfid_bridge.py`: a spool removed from a box slot kept showing its last
+  read spool number in `RFID_BRIDGE_STATUS` (and Spoolman) indefinitely,
+  because the cached RFID read was never cleared once the spool was gone. A
+  slot is now cleared immediately when QIDI's own per-slot filament sensor
+  reports it empty, with a fallback that also clears it after a few
+  consecutive failed RFID reads (e.g. an unreadable tag on a spool that is
+  still physically present).
+
 ## [0.6.0] - 2026-09-22
 
 ### Added
