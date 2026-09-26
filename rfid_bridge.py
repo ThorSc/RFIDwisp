@@ -25,6 +25,15 @@
 #     "/server/spoolman/spool_id" endpoint on a background thread (never
 #     blocking the reactor). Moonraker owns the actual Spoolman
 #     conversation and consumption tracking from there.
+#   - A spool removed from a slot is detected two ways: primarily by
+#     polling multi_color_controller's own "slots.states" (backed by a
+#     real per-slot runout sensor - the same signal Fluidd's spool grid
+#     reads, via save_variables, to show a slot as present/empty), which
+#     reacts immediately; as a fallback (older firmware without that
+#     object, or a slot the RFID reader hasn't revisited yet), several
+#     consecutive failed fm17550 reads for a slot also clear it. Either
+#     way the cached tag is dropped and "no spool" is reported for that
+#     slot, same as a real empty read would.
 #
 # Confirmed byte layout (matches multi_color_controller.config exactly):
 #   data[0] = filament_type_id, data[1] = color_id, data[2..] = 0 (QIDI
@@ -61,7 +70,7 @@ import mcu as mcu_module
 # by hand. The release workflow refuses a changed file with an unchanged
 # version or a lower one than the last release
 # (scripts/check_bridge_version.py).
-RFID_BRIDGE_VERSION = "1.0.0"
+RFID_BRIDGE_VERSION = "1.0.2"
 
 
 def _own_checksum():
@@ -81,6 +90,14 @@ RFID_BRIDGE_CHECKSUM = _own_checksum()
 
 MOONRAKER_REQUEST_TIMEOUT = 5.0
 
+# A slot is only declared empty after this many consecutive failed reads
+# (status != 1), not on the first one - a single failed read can just be a
+# transient misread of a tag that is still physically present (vibration,
+# a slightly-off rotor position, ...). Chosen empirically; raise it if
+# slots still get flagged empty spuriously, lower it if a truly removed
+# spool takes too long to be noticed.
+EMPTY_READ_THRESHOLD = 3
+
 
 class RFIDBridge:
     def __init__(self, config):
@@ -93,6 +110,8 @@ class RFIDBridge:
         self.current_slot = None       # int or None
         self.last_raw = {}             # slot(int) -> bytes(16)
         self.last_raw_time = {}        # slot(int) -> reactor monotonic time
+        self._empty_read_count = {}    # slot(int) -> consecutive failed reads
+        self._slot_occupied = {}       # slot(int) -> bool, last known sensor state
         self._pending_slots = set(range(self.slot_count))
         self._registered_slots = set()
 
@@ -130,10 +149,13 @@ class RFIDBridge:
             resp = orig_send(wrapper_self, data, minclock, reqclock)
             try:
                 if (wrapper_self._response == "fm17550_read_card_return"
-                        and isinstance(resp, dict)
-                        and resp.get("status") == 1):
-                    cls._rfid_bridge_instance._handle_raw_read(
-                        resp.get("data"))
+                        and isinstance(resp, dict)):
+                    if resp.get("status") == 1:
+                        cls._rfid_bridge_instance._handle_raw_read(
+                            resp.get("data"))
+                    else:
+                        cls._rfid_bridge_instance._handle_failed_read(
+                            resp.get("status"))
             except Exception:
                 logging.exception("rfid_bridge: error handling RFID response")
             return resp
@@ -148,8 +170,36 @@ class RFIDBridge:
         slot = self.current_slot
         self.last_raw[slot] = raw
         self.last_raw_time[slot] = self.printer.get_reactor().monotonic()
+        self._empty_read_count[slot] = 0
         logging.info("rfid_bridge: slot%d raw=%s", slot, raw.hex())
         self._maybe_report_spool(slot, raw, reason="slot_read")
+
+    def _handle_failed_read(self, status):
+        """A read for the active slot came back without a tag.
+
+        QIDI's own reader polls every slot's tag continuously (that's how
+        multi_color_controller stays live), so a *lone* failed read is
+        normal - the rotor can be slightly off position for an instant.
+        Only clear the cached tag once several reads in a row fail, which
+        means the spool was actually removed (or a slot was always empty
+        and is being read for the first time).
+        """
+        slot = self.current_slot
+        if slot is None:
+            return
+        count = self._empty_read_count.get(slot, 0) + 1
+        self._empty_read_count[slot] = count
+        if count < EMPTY_READ_THRESHOLD:
+            return
+        if slot not in self.last_raw:
+            return  # already empty, nothing to clear
+        logging.info(
+            "rfid_bridge: slot%d has no tag after %d consecutive failed "
+            "reads (status=%s) - clearing cached spool_id %s",
+            slot, count, status, self._decode_spool_id(self.last_raw[slot]))
+        del self.last_raw[slot]
+        self.last_raw_time.pop(slot, None)
+        self._maybe_report_spool(slot, None, reason="slot_empty")
 
     def _connect(self):
         """Track which box_stepper slot is active (public callback API).
@@ -162,6 +212,7 @@ class RFIDBridge:
         reactor = self.printer.get_reactor()
         reactor.register_timer(self._try_register_slots, reactor.NOW)
         reactor.register_timer(self._poll_print_state, reactor.NOW)
+        reactor.register_timer(self._poll_slot_occupancy, reactor.NOW)
 
     def _try_register_slots(self, eventtime):
         stepper_enable = self.printer.lookup_object('stepper_enable')
@@ -185,6 +236,48 @@ class RFIDBridge:
         if not self._pending_slots:
             return self.printer.get_reactor().NEVER
         return eventtime + 2.0
+
+    def _poll_slot_occupancy(self, eventtime):
+        """Cross-check the cached tag against QIDI's own presence sensor.
+
+        QIDI's box has a dedicated runout sensor per slot - that is what
+        Fluidd's own spool grid actually reads (via
+        multi_color_controller's "slots.states", mirrored into
+        save_variables) to show a slot as present/empty, not the RFID tag.
+        It reacts the instant a spool is pulled, so it is both faster and
+        more reliable than inferring "empty" from repeated failed RFID
+        reads (_handle_failed_read) - which stays in place as a fallback
+        for firmware without this object, or slots the reader hasn't
+        revisited yet.
+        """
+        try:
+            mcc = self.printer.lookup_object('multi_color_controller')
+            states = mcc.get_status(eventtime)['slots']['states']
+        except Exception:
+            return eventtime + 2.0
+        for slot in range(self.slot_count):
+            raw_state = states.get('slot%d' % slot)
+            if raw_state is None:
+                continue
+            occupied = bool(raw_state)
+            was_occupied = self._slot_occupied.get(slot)
+            self._slot_occupied[slot] = occupied
+            if was_occupied and not occupied:
+                self._on_slot_emptied(slot)
+        return eventtime + 2.0
+
+    def _on_slot_emptied(self, slot):
+        self._empty_read_count[slot] = 0
+        if slot not in self.last_raw:
+            return  # already empty (or never read) - nothing to clear
+        logging.info(
+            "rfid_bridge: slot%d emptied (multi_color_controller runout "
+            "sensor) - clearing cached spool_id %s",
+            slot, self._decode_spool_id(self.last_raw[slot]))
+        del self.last_raw[slot]
+        self.last_raw_time.pop(slot, None)
+        if slot == self.current_slot:
+            self._maybe_report_spool(slot, None, reason="slot_empty_sensor")
 
     def _make_callback(self, slot):
         def callback(print_time, is_enable):
@@ -284,14 +377,18 @@ class RFIDBridge:
     def cmd_RFID_BRIDGE_STATUS(self, gcmd):
         gcmd.respond_info("rfid_bridge version %s (checksum %s)" % (
             RFID_BRIDGE_VERSION, RFID_BRIDGE_CHECKSUM))
-        if not self.last_raw:
+        known_slots = self._registered_slots | set(self.last_raw)
+        if not known_slots:
             gcmd.respond_info("RFID_BRIDGE_STATUS: no data captured yet")
         else:
-            for slot in sorted(self.last_raw):
-                gcmd.respond_info(
-                    "slot%d: %s (spool_id: %s)" % (
-                        slot, self.last_raw[slot].hex(),
-                        self._decode_spool_id(self.last_raw[slot])))
+            for slot in sorted(known_slots):
+                raw = self.last_raw.get(slot)
+                if raw is None:
+                    gcmd.respond_info("slot%d: empty" % slot)
+                else:
+                    gcmd.respond_info(
+                        "slot%d: %s (spool_id: %s)" % (
+                            slot, raw.hex(), self._decode_spool_id(raw)))
         gcmd.respond_info(
             "last reported spool_id: %s (reason: %s)"
             % (self.last_reported_spool_id, self.last_report_reason))
