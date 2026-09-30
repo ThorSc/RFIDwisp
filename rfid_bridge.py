@@ -70,7 +70,7 @@ import mcu as mcu_module
 # by hand. The release workflow refuses a changed file with an unchanged
 # version or a lower one than the last release
 # (scripts/check_bridge_version.py).
-RFID_BRIDGE_VERSION = "1.0.2"
+RFID_BRIDGE_VERSION = "1.0.3"
 
 
 def _own_checksum():
@@ -193,6 +193,12 @@ class RFIDBridge:
             return
         if slot not in self.last_raw:
             return  # already empty, nothing to clear
+        if self._slot_occupied.get(slot):
+            # The runout sensor still sees filament: the reader merely missed
+            # the tag (rotor off position), the spool is not gone. Clearing
+            # here would drop a valid spool_id. _on_slot_emptied handles a
+            # real removal.
+            return
         logging.info(
             "rfid_bridge: slot%d has no tag after %d consecutive failed "
             "reads (status=%s) - clearing cached spool_id %s",
