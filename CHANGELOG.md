@@ -5,6 +5,23 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-09-30
+
+### Added
+
+- The settings dialog's General tab has a **Check for updates now** button. It
+  reports whether you are up to date (or that the check failed) and, if a
+  newer version exists, installs it from there.
+- If the startup update check finds a newer version, a dialog now offers to
+  install it right away: the app downloads the release file, verifies its
+  SHA-256 checksum and starts the installation - the Windows installer
+  (silently, then the new version starts), the `.deb` on Linux (asks for the
+  administrator password via `pkexec`) or the APK on Android (the system
+  installer takes over; the first time Android asks to allow installing apps
+  from RFID Wisp). The portable Windows/Linux versions can't update
+  themselves and the dialog leads to the download page instead. "Later"
+  keeps the hint in the status bar, which reopens the dialog when tapped.
+
 ## [0.6.2] - 2026-09-30
 
 ### Fixed
