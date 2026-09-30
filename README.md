@@ -3,6 +3,8 @@
 A cross-platform (Windows/Linux/Android) app for reading and writing the
 MIFARE Classic 1K RFID tags used by QIDI's multi-color filament boxes (the
 QIDI Boxes that are connected to QIDI Plus4 and QIDI Max4 printers).
+In addition to the data that are used by QIDI you can add and manage information about manufacturers, colors, and remaining weights of filament from [Spoolman](https://github.com/Donkie/Spoolman). And the RFID bridge makes sure that every time the correct spool data are handled by the printer and Fluidd UI.
+Also check out the [RFID Wisp Terminal](https://github.com/ThorSc/RFIDWisp-ESP32) to read and write the RFID tags for your filament spools.
 
 This repository hosts only the built releases; there is no source code here.
 The desktop versions are portable downloads - no installation is required.
@@ -101,8 +103,13 @@ Runs on Windows, Linux and Android. Implemented so far:
 - Printer management in the settings: any number of printers, each with a
   name and the address of its Moonraker service.
 - Spoolman settings: the server address, and a switch to use Spoolman or not.
-- Background check for a newer release at startup (can be switched off in
-  the settings). If one is found, a download link appears in the status bar.
+- Check for a newer release at startup (can be switched off in the settings)
+  and on demand with **Check for updates now** in the settings. If one is
+  found, a dialog offers to install it right away: the app downloads the
+  release file, verifies its checksum and installs it (Windows installer,
+  Linux `.deb`, Android APK). A hint stays in the status bar if you decline.
+  The portable Windows and Linux versions cannot update themselves and link to
+  the download page instead.
 - Optional Klipper companion module (`rfid_bridge.py`) that reads the RFID
   data of the QIDI box on the printer and keeps the active spool in
   Moonraker/Spoolman in sync (see "Klipper integration").
@@ -152,7 +159,9 @@ Runs on Windows, Linux and Android. Implemented so far:
 1. Start the app; the main window appears once the splash screen is done.
 2. Open **File → Settings …**. The settings are grouped on tabs:
    - **General** - language (system default, English, German or Ukrainian) and whether
-     to check for a new version at startup. **Export settings …** saves all
+     to check for a new version at startup; **Check for updates now** looks
+     right away and, if there is a newer version, **Install** installs it.
+     **Export settings …** saves all
      settings (language, update check, reader, printers, Spoolman) to a JSON
      file you choose; **Import settings …** loads them from such a file, e.g.
      to move to another computer or phone or to keep a backup. An import only
@@ -255,7 +264,7 @@ Runs on Windows, Linux and Android. Implemented so far:
 7. **File → Exit** closes the app (desktop only), **Help → About** shows
    version and license information.
 
-## Klipper integration (`rfid_bridge`)
+## Klipper integration (`rfid_bridge`)boo
 
 To have your QIDI printer capture the raw RFID payload of each loaded spool
 during printing (so it can be correlated with the tag data written by the app)
