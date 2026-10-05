@@ -2,7 +2,7 @@
 
 A cross-platform (Windows/Linux/Android) app for reading and writing the
 MIFARE Classic 1K RFID tags used by QIDI's multi-color filament boxes (the
-QIDI Boxes that are connected to QIDI Plus4 and QIDI Max4 printers).
+QIDI Boxes that are connected to QIDI Plus4, QIDI Max4 and QIDI Q2 printers).
 In addition to the data that are used by QIDI you can add and manage information about manufacturers, colors, and remaining weights of filament from [Spoolman](https://github.com/Donkie/Spoolman). And the RFID bridge makes sure that every time the correct spool data are handled by the printer and Fluidd UI.
 Also check out the [RFID Wisp Terminal](https://github.com/ThorSc/RFIDWisp-ESP32) to read and write the RFID tags for your filament spools.
 
@@ -64,7 +64,13 @@ or **Write Tag**, then hold the tag to the back of the phone.
 
 ## Features
 
-Runs on Windows, Linux and Android. Implemented so far:
+Runs on Windows, Linux and Android. Works with the QIDI Plus4 and QIDI Max4
+(tested by the author) and the QIDI Q2 (tested by a community member on
+firmware v1.1.1 with one QIDI Box; firmware v1.1.2 is untested). The Q2 does
+not report its box data through `multi_color_controller`: the app reads it
+from `save_variables` and the printer's own filament list instead, and the
+spool numbers on a Q2 come from the Klipper module `rfid_bridge.py`.
+Implemented so far:
 
 - Splash screen with the logo while the app starts up.
 - Main window with a menu bar (File, Help) and a status bar showing the
@@ -82,11 +88,16 @@ Runs on Windows, Linux and Android. Implemented so far:
 - **QIDI Data** frame in the main window (from the Python version): choose a
   printer and one of its QIDI boxes and see what the box reports for each of
   its four slots - material, vendor, colour, and the Spoolman spool number and
-  vendor stored on the RFID tag. The last chosen printer is remembered.
+  vendor stored on the RFID tag. The last chosen printer is remembered. The
+  material, vendor and colour names come from the printer's own filament list
+  (`officiall_filas_list.cfg`); the list that is built into the app is only
+  used where the printer's list cannot be read.
 - **RFID Tag** frame in the main window, below QIDI Data (from the Python
   version; on Android with the phone's own NFC reader, which needs no
   choosing, and without the QR Code frame): reads the filament data of the MIFARE Classic 1K
-  tag on the default reader and writes it. A tag can be written for a new
+  tag on the default reader and writes it. The Material, Vendor and Colour
+  lists are merged from all configured printers, so a written tag works in
+  every box. A tag can be written for a new
   spool (created in Spoolman on the fly, optionally from an existing Spoolman
   filament) or for an existing Spoolman spool, or - with Spoolman switched
   off - from material, vendor, colour and a spool number entered by hand. A
@@ -342,6 +353,33 @@ filament isn't fed through the box hub). Do not rely on a slicer-side
 it runs later in the print than `rfid_bridge`'s own report and will silently
 overwrite the RFID-derived spool with whatever fixed ID is hardcoded in the
 filament profile.
+
+### Slot presence
+
+`rfid_bridge` knows whether a spool is in a slot from the per-slot runout
+sensor: `runout_button` of the `box_stepper slotN` object (also available on
+the QIDI Q2, which has no `multi_color_controller`). Where a slot has no
+`runout_button`, `multi_color_controller`'s `slots.states` is used instead.
+The moment a spool is pulled, its cached tag is dropped and the active spool is
+cleared. A read that arrives for a slot the sensor reports as empty was
+attributed to the wrong slot and is ignored. A read of only zero bytes is not
+a tag and counts as a failed read. A tag that differs from the cached one of a slot that still holds a spool
+is held until it is read a second time within 30 seconds: the box reads a
+newly inserted spool before it switches to that slot, so the first read can
+belong to another slot. Presence per slot is shown in
+`RFID_BRIDGE_STATUS` and as `slot_occupied` in the Moonraker object.
+
+Optional settings in the `[rfid_bridge]` section of `printer.cfg`:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `runout_present_value` | `0` | Value of `runout_button` that means "filament present". `0` is confirmed on the Q2, Plus4 and Max4. |
+| `ignore_reads_on_empty_slot` | `True` | Ignore RFID reads attributed to a slot the sensor reports as empty. |
+| `occupancy_poll_interval` | `0.5` | How often (seconds) the sensors are polled. |
+
+After replacing `rfid_bridge.py` restart the Klipper **service**
+(`sudo systemctl restart klipper`); a Klipper `RESTART` does not reload the
+module.
 
 ## License
 
