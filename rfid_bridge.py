@@ -26,14 +26,18 @@
 #     blocking the reactor). Moonraker owns the actual Spoolman
 #     conversation and consumption tracking from there.
 #   - A spool removed from a slot is detected two ways: primarily by
-#     polling multi_color_controller's own "slots.states" (backed by a
-#     real per-slot runout sensor - the same signal Fluidd's spool grid
-#     reads, via save_variables, to show a slot as present/empty), which
-#     reacts immediately; as a fallback (older firmware without that
-#     object, or a slot the RFID reader hasn't revisited yet), several
-#     consecutive failed fm17550 reads for a slot also clear it. Either
-#     way the cached tag is dropped and "no spool" is reported for that
-#     slot, same as a real empty read would.
+#     polling the per-slot runout sensor ("runout_button" of the
+#     "box_stepper slotN" object, which is also what the QIDI Q2 exposes;
+#     multi_color_controller's "slots.states" serves as fallback where a
+#     slot has no runout_button). It is the same signal Fluidd's spool grid
+#     shows as present/empty, and it reacts immediately. As a last resort
+#     (firmware with neither, or a slot the RFID reader hasn't revisited
+#     yet), several consecutive failed fm17550 reads for a slot also clear
+#     it - but never while a sensor says the slot is occupied. Either way
+#     the cached tag is dropped and "no spool" is reported for that slot,
+#     same as a real empty read would.
+#   - A read that arrives for a slot the sensor says is empty was attributed
+#     to the wrong slot (one reader serves several slots) and is ignored.
 #
 # Confirmed byte layout (matches multi_color_controller.config exactly):
 #   data[0] = filament_type_id, data[1] = color_id, data[2..] = 0 (QIDI
@@ -48,6 +52,10 @@
 #   moonraker_api_key:                      # optional, only needed if
 #                                            # Moonraker requires auth for
 #                                            # local requests
+#   runout_present_value: 0                 # optional, runout_button value
+#                                           # meaning "filament present"
+#   ignore_reads_on_empty_slot: True        # optional
+#   occupancy_poll_interval: 0.5            # optional, seconds
 #
 # Query via Moonraker: GET /printer/objects/query?rfid_bridge
 # Or:  RFID_BRIDGE_STATUS
@@ -70,7 +78,7 @@ import mcu as mcu_module
 # by hand. The release workflow refuses a changed file with an unchanged
 # version or a lower one than the last release
 # (scripts/check_bridge_version.py).
-RFID_BRIDGE_VERSION = "1.0.3"
+RFID_BRIDGE_VERSION = "1.1.2"
 
 
 def _own_checksum():
@@ -98,6 +106,11 @@ MOONRAKER_REQUEST_TIMEOUT = 5.0
 # spool takes too long to be noticed.
 EMPTY_READ_THRESHOLD = 3
 
+# A read that differs from the cached tag of an occupied slot is only
+# accepted when the same tag is read again for that slot within this many
+# seconds (see _handle_raw_read). The box repeats a read 5-8 s later.
+UNCONFIRMED_READ_WINDOW = 30.0
+
 
 class RFIDBridge:
     def __init__(self, config):
@@ -106,12 +119,19 @@ class RFIDBridge:
         self.moonraker_url = config.get(
             'moonraker_url', 'http://127.0.0.1:7125').rstrip('/')
         self.moonraker_api_key = config.get('moonraker_api_key', None)
+        self.runout_present_value = config.getint('runout_present_value', 0)
+        self.ignore_reads_on_empty_slot = config.getboolean(
+            'ignore_reads_on_empty_slot', True)
+        self.occupancy_poll_interval = config.getfloat(
+            'occupancy_poll_interval', 0.5, above=0.)
 
         self.current_slot = None       # int or None
         self.last_raw = {}             # slot(int) -> bytes(16)
         self.last_raw_time = {}        # slot(int) -> reactor monotonic time
         self._empty_read_count = {}    # slot(int) -> consecutive failed reads
         self._slot_occupied = {}       # slot(int) -> bool, last known sensor state
+        self._ignored_logged = set()   # slots whose ignored read was logged
+        self._unconfirmed = {}         # slot(int) -> (raw, time) of a differing read
         self._pending_slots = set(range(self.slot_count))
         self._registered_slots = set()
 
@@ -168,8 +188,48 @@ class RFIDBridge:
             return
         raw = bytes(data)
         slot = self.current_slot
+        if not any(raw):
+            # An all-zero block is not a tag. The reader returned status 1
+            # but nothing usable (seen on the Q2 right after a restart).
+            # Storing it would overwrite the cached spool_id of this slot
+            # with None, so count it as a failed read instead.
+            logging.info("rfid_bridge: slot%d all-zero read ignored", slot)
+            self._handle_failed_read("zero")
+            return
+        if (self.ignore_reads_on_empty_slot
+                and self._slot_occupied.get(slot) is False):
+            # The sensor says nothing is in this slot: the read was
+            # attributed to the wrong slot. Keeping it would attach a
+            # spool_id to an empty slot.
+            if slot not in self._ignored_logged:
+                self._ignored_logged.add(slot)
+                logging.info(
+                    "rfid_bridge: slot%d read ignored, presence sensor says "
+                    "empty (raw=%s)", slot, raw.hex())
+            return
+        self._ignored_logged.discard(slot)
+        now = self.printer.get_reactor().monotonic()
+        cached = self.last_raw.get(slot)
+        if cached is None or cached == raw:
+            self._unconfirmed.pop(slot, None)
+        else:
+            # A different tag for a slot that still holds a cached one. A
+            # spool swap needs a removal first, which clears the cache, so
+            # this is almost always a read of a spool just inserted in
+            # another slot, arriving before the active slot has switched
+            # (seen on Plus4, Max4 and Q2). Hold it until the same tag is
+            # read for this slot a second time.
+            pending = self._unconfirmed.get(slot)
+            if (pending is None or pending[0] != raw
+                    or now - pending[1] > UNCONFIRMED_READ_WINDOW):
+                self._unconfirmed[slot] = (raw, now)
+                logging.info(
+                    "rfid_bridge: slot%d read differs from cached tag, "
+                    "waiting for a second read (raw=%s)", slot, raw.hex())
+                return
+            del self._unconfirmed[slot]
         self.last_raw[slot] = raw
-        self.last_raw_time[slot] = self.printer.get_reactor().monotonic()
+        self.last_raw_time[slot] = now
         self._empty_read_count[slot] = 0
         logging.info("rfid_bridge: slot%d raw=%s", slot, raw.hex())
         self._maybe_report_spool(slot, raw, reason="slot_read")
@@ -194,7 +254,7 @@ class RFIDBridge:
         if slot not in self.last_raw:
             return  # already empty, nothing to clear
         if self._slot_occupied.get(slot):
-            # The runout sensor still sees filament: the reader merely missed
+            # The presence sensor still sees filament: the reader merely missed
             # the tag (rotor off position), the spool is not gone. Clearing
             # here would drop a valid spool_id. _on_slot_emptied handles a
             # real removal.
@@ -243,42 +303,72 @@ class RFIDBridge:
             return self.printer.get_reactor().NEVER
         return eventtime + 2.0
 
+    def _read_slot_presence(self, slot, eventtime):
+        """True = filament present, False = empty, None = unknown.
+
+        Source: runout_button of "box_stepper slotN" (or plain "slotN").
+        runout_present_value says which value means present.
+        """
+        for candidate in ("box_stepper slot%d" % slot, "slot%d" % slot):
+            obj = self.printer.lookup_object(candidate, None)
+            if obj is None:
+                continue
+            try:
+                value = obj.get_status(eventtime).get('runout_button')
+            except Exception:
+                continue
+            if value is None:
+                continue
+            return int(value) == self.runout_present_value
+        return None
+
     def _poll_slot_occupancy(self, eventtime):
-        """Cross-check the cached tag against QIDI's own presence sensor.
+        """Track slot presence and clear the cache the moment a spool leaves.
 
         QIDI's box has a dedicated runout sensor per slot - that is what
-        Fluidd's own spool grid actually reads (via
-        multi_color_controller's "slots.states", mirrored into
-        save_variables) to show a slot as present/empty, not the RFID tag.
-        It reacts the instant a spool is pulled, so it is both faster and
-        more reliable than inferring "empty" from repeated failed RFID
-        reads (_handle_failed_read) - which stays in place as a fallback
-        for firmware without this object, or slots the reader hasn't
-        revisited yet.
+        Fluidd's own spool grid actually reads to show a slot as
+        present/empty, not the RFID tag. It reacts the instant a spool is
+        pulled, so it is both faster and more reliable than inferring
+        "empty" from repeated failed RFID reads (_handle_failed_read) -
+        which stays in place as a fallback. Falls back to
+        multi_color_controller's "slots.states" for slots without a
+        runout_button.
         """
-        try:
-            mcc = self.printer.lookup_object('multi_color_controller')
-            states = mcc.get_status(eventtime)['slots']['states']
-        except Exception:
-            return eventtime + 2.0
+        mcc_states = None
         for slot in range(self.slot_count):
-            raw_state = states.get('slot%d' % slot)
-            if raw_state is None:
-                continue
-            occupied = bool(raw_state)
+            occupied = self._read_slot_presence(slot, eventtime)
+            if occupied is None:
+                if mcc_states is None:
+                    try:
+                        mcc = self.printer.lookup_object(
+                            'multi_color_controller')
+                        mcc_states = mcc.get_status(
+                            eventtime)['slots']['states']
+                    except Exception:
+                        mcc_states = {}
+                raw_state = mcc_states.get('slot%d' % slot)
+                if raw_state is None:
+                    continue
+                occupied = bool(raw_state)
             was_occupied = self._slot_occupied.get(slot)
             self._slot_occupied[slot] = occupied
+            if was_occupied is not None and was_occupied != occupied:
+                logging.info("rfid_bridge: slot%d presence changed: %s",
+                             slot, "occupied" if occupied else "empty")
+            if occupied:
+                self._ignored_logged.discard(slot)
             if was_occupied and not occupied:
                 self._on_slot_emptied(slot)
-        return eventtime + 2.0
+        return eventtime + self.occupancy_poll_interval
 
     def _on_slot_emptied(self, slot):
         self._empty_read_count[slot] = 0
+        self._unconfirmed.pop(slot, None)
         if slot not in self.last_raw:
             return  # already empty (or never read) - nothing to clear
         logging.info(
-            "rfid_bridge: slot%d emptied (multi_color_controller runout "
-            "sensor) - clearing cached spool_id %s",
+            "rfid_bridge: slot%d emptied (presence sensor) - clearing "
+            "cached spool_id %s",
             slot, self._decode_spool_id(self.last_raw[slot]))
         del self.last_raw[slot]
         self.last_raw_time.pop(slot, None)
@@ -380,24 +470,34 @@ class RFIDBridge:
     cmd_RFID_BRIDGE_STATUS_help = (
         "Show the last raw fm17550 RFID payload captured per box slot")
 
+    def _presence_label(self, slot):
+        state = self._slot_occupied.get(slot)
+        if state is None:
+            return "presence: unknown"
+        return "presence: %s" % ("occupied" if state else "empty")
+
     def cmd_RFID_BRIDGE_STATUS(self, gcmd):
         gcmd.respond_info("rfid_bridge version %s (checksum %s)" % (
             RFID_BRIDGE_VERSION, RFID_BRIDGE_CHECKSUM))
-        known_slots = self._registered_slots | set(self.last_raw)
+        known_slots = (self._registered_slots | set(self.last_raw)
+                       | set(self._slot_occupied))
         if not known_slots:
             gcmd.respond_info("RFID_BRIDGE_STATUS: no data captured yet")
         else:
             for slot in sorted(known_slots):
                 raw = self.last_raw.get(slot)
                 if raw is None:
-                    gcmd.respond_info("slot%d: empty" % slot)
+                    gcmd.respond_info("slot%d: empty cache (%s)" % (
+                        slot, self._presence_label(slot)))
                 else:
                     gcmd.respond_info(
-                        "slot%d: %s (spool_id: %s)" % (
-                            slot, raw.hex(), self._decode_spool_id(raw)))
+                        "slot%d: %s (spool_id: %s, %s)" % (
+                            slot, raw.hex(), self._decode_spool_id(raw),
+                            self._presence_label(slot)))
         gcmd.respond_info(
-            "last reported spool_id: %s (reason: %s)"
-            % (self.last_reported_spool_id, self.last_report_reason))
+            "current slot: %s | last reported spool_id: %s (reason: %s)"
+            % (self.current_slot, self.last_reported_spool_id,
+               self.last_report_reason))
 
     def get_status(self, eventtime):
         return {
@@ -417,6 +517,10 @@ class RFIDBridge:
             "spool_ids": {
                 "slot%d" % slot: self._decode_spool_id(data)
                 for slot, data in self.last_raw.items()
+            },
+            "slot_occupied": {
+                "slot%d" % slot: state
+                for slot, state in self._slot_occupied.items()
             },
             "last_reported_spool_id": self.last_reported_spool_id,
             "last_report_time": self.last_report_time,
