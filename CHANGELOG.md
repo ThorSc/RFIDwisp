@@ -5,6 +5,73 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-10-05
+
+### Added
+
+- Support for the QIDI Q2 next to the Plus4 and Max4: the QIDI Data frame and the
+  RFID Tag frame work on the Q2 and `rfid_bridge.py` runs on it (see the entries
+  below). The Q2 was tested by Tranbert on firmware v1.1.1 with one QIDI Box;
+  the author tested on a Plus4 and a Max4. Firmware v1.1.2 of the Q2 is untested.
+- `rfid_bridge.py` 1.1.0: slot presence now comes from the `runout_button` of
+  `box_stepper slotN`, so the QIDI Q2 (no `multi_color_controller`) clears a
+  removed spool and ignores RFID reads attributed to an empty slot. New optional
+  settings `runout_present_value`, `ignore_reads_on_empty_slot` and
+  `occupancy_poll_interval`; presence per slot is shown in `RFID_BRIDGE_STATUS`.
+  Based on a patch by Tranbert, who also tested it on a QIDI Q2; tested live on a
+  Plus4 and a Max4.
+- `rfid_bridge.py`: an all-zero RFID read is no longer treated as a tag. It
+  counts as a failed read, so it can no longer overwrite the cached spool
+  number of a slot with "none".
+- `rfid_bridge.py`: a tag read that differs from the cached tag of an occupied slot
+  is only accepted after the same tag is read a second time. Inserting a spool
+  while another slot is active no longer overwrites that slot's spool number
+  (seen on Plus4, Max4 and Q2).
+- Material, vendor and colour options in the RFID Tag frame are now read
+  live from each connected printer's own table instead of only the bundled
+  QIDI list, and merged across all configured printers so a written tag
+  works in every box. The QIDI box data in the main window gains the same
+  live-table support, and now also works on printers whose Klipper has no
+  `multi_color_controller` object (e.g. the Q2), falling back to
+  `save_variables` and reading `officiall_filas_list.cfg` directly from the
+  printer.
+- On printers without `multi_color_controller` (e.g. the QIDI Q2) the QIDI
+  Data frame now takes the loaded/empty state of each slot from its live runout
+  sensor (`runout_button` of `box_stepper slotN`) instead of the value last
+  stored in `save_variables`; without the sensor it falls back as before.
+
+### Changed
+
+- The bundled QIDI material list is updated to the `officiall_filas_list.cfg` of
+  the current Plus4, Max4 and Q2 firmware: new materials Support For PLA, TPU-GF,
+  ASA-CF, PC, TPEE, PEBA, PPS-GF and TPU-AERO 64D, and the names now match the
+  printers (`PLA Rapido`, `ABS Rapido`, `TPU 95A-HF`, `ASA-Aero`, `PETG-Tough`,
+  `Support For PAHT`, `Support For PET/PA`). The IDs written on tags are
+  unchanged; the list is only used where no printer's live table is available.
+
+### Fixed
+
+- "QIDI box data not available: Moonraker did not return a valid count of
+  installed QIDI..." on printers whose Klipper has no
+  `multi_color_controller` object (e.g. the QIDI Q2).
+- Writing or reading an RFID tag could crash with a vendor the printer
+  itself does not call `GENERIC` (e.g. a Plus4's own filament table spells
+  it `Generic`) - the generic/no-brand vendor is now resolved by its ID (0)
+  instead of by that exact name.
+- RFID tags now always carry the QIDI vendor chosen in the Vendor box in byte 2;
+  the Spoolman vendor ID only goes into byte 13. Before, a linked Spoolman
+  vendor ID replaced the QIDI vendor code, so the RFID Tag frame showed
+  `GENERIC` where the printer showed `QIDI`. Tags written by older versions
+  are still read.
+
+### Thanks
+
+- Tranbert tried RFID Wisp and `rfid_bridge.py` on a QIDI Q2 and reported what did
+  not work there (issue #2). He wrote the patch that became the slot presence
+  handling of `rfid_bridge.py` 1.1.0, found the wrong spool numbers after hot
+  insertion and restart that `rfid_bridge.py` 1.1.2 now guards against, and tested
+  every test build on the Q2 in detail with logs and measurements. Thank you!
+
 ## [0.7.0] - 2026-09-30
 
 ### Added
