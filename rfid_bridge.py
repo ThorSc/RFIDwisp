@@ -78,7 +78,7 @@ import mcu as mcu_module
 # by hand. The release workflow refuses a changed file with an unchanged
 # version or a lower one than the last release
 # (scripts/check_bridge_version.py).
-RFID_BRIDGE_VERSION = "1.1.2"
+RFID_BRIDGE_VERSION = "1.1.3"
 
 
 def _own_checksum():
@@ -195,6 +195,18 @@ class RFIDBridge:
             # with None, so count it as a failed read instead.
             logging.info("rfid_bridge: slot%d all-zero read ignored", slot)
             self._handle_failed_read("zero")
+            return
+        if not raw[0] or not raw[1]:
+            # A tag has a material (byte 0) and a color (byte 1), numbered
+            # from 1 on every QIDI printer. Without one of them only part of
+            # the block arrived (seen on the Q2 after a restart: only the
+            # first byte set, 02 00 00 ...). Accepting it would fill the
+            # cache with a tag that the real one then differs from, and the
+            # real one would be held until it is read twice.
+            logging.info(
+                "rfid_bridge: slot%d partial read ignored, no material or "
+                "color (raw=%s)", slot, raw.hex())
+            self._handle_failed_read("partial")
             return
         if (self.ignore_reads_on_empty_slot
                 and self._slot_occupied.get(slot) is False):
