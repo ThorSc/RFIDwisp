@@ -5,6 +5,25 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] - 2026-10-06
+
+### Changed
+
+- Settings dialog: the update controls and the export/import buttons are grouped
+  with more spacing.
+
+### Fixed
+
+- `rfid_bridge.py` 1.1.3: a read without a material or color (byte 0 or 1 is zero,
+  e.g. only the first byte set) is treated as a failed read, like an all-zero one.
+  After a restart the QIDI Q2 sometimes returned such a partial read for a slot;
+  it was taken as the slot's tag, and the real tag then had to be read twice within
+  30 seconds before it was accepted. Reported by Tranbert on a QIDI Q2.
+- Update dialog: after "Install" the progress bar now moves right away
+  (indeterminate until the first data arrives), shows the percentage while
+  downloading and then "Starting the installation …", so the app no longer
+  looks frozen.
+
 ## [0.8.0] - 2026-10-05
 
 ### Added
