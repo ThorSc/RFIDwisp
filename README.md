@@ -362,8 +362,9 @@ the QIDI Q2, which has no `multi_color_controller`). Where a slot has no
 `runout_button`, `multi_color_controller`'s `slots.states` is used instead.
 The moment a spool is pulled, its cached tag is dropped and the active spool is
 cleared. A read that arrives for a slot the sensor reports as empty was
-attributed to the wrong slot and is ignored. A read of only zero bytes is not
-a tag and counts as a failed read. A tag that differs from the cached one of a slot that still holds a spool
+attributed to the wrong slot and is ignored. A read of only zero bytes, or one
+without a material or color (byte 0 or 1 is zero: only part of the block
+arrived), is not a tag and counts as a failed read. A tag that differs from the cached one of a slot that still holds a spool
 is held until it is read a second time within 30 seconds: the box reads a
 newly inserted spool before it switches to that slot, so the first read can
 belong to another slot. Presence per slot is shown in
