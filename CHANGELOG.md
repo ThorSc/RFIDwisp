@@ -5,6 +5,33 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.2] - 2026-10-08
+
+### Fixed
+
+- `rfid_bridge.py` 1.1.4: at the start of a print the bridge no longer reports the spool of the
+  last active slot. It waits for the slot the print uses (fallback after 2 minutes) and does
+  nothing when the box is switched off (`enable_box` = 0), so an external spool selected in
+  Fluidd stays selected.
+- QIDI Data frame: with **Use Spoolman** switched off in the settings, Spoolman is no
+  longer asked for vendor names and spool weights, even if an address is saved.
+
+### Missing from the 0.8.0 notes
+
+These changes are already part of 0.8.0 (and later versions) but were not listed in
+its release notes.
+
+- Status bar: the tooltips show the full text of the status message and of the
+  reader message when it is cut off with "…".
+- Windows only: every status bar message is appended with a timestamp to
+  `%APPDATA%\RFIDwisp\status.log`. At 10 MB the file is renamed to
+  `status_YYYY-MM-DD_HH-mm-ss.log` and a new one is started.
+- Help → **Open log** opens that log in Notepad. The entry is only shown where
+  the log is active (Windows).
+- QIDI Data frame: a red warning appears when Moonraker on the printer reports
+  no Spoolman connection. It is also written to the status bar and is checked
+  when the printer is checked and on **Read box**.
+
 ## [0.8.1] - 2026-10-06
 
 ### Changed
