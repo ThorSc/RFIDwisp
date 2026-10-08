@@ -64,12 +64,14 @@ or **Write Tag**, then hold the tag to the back of the phone.
 
 ## Features
 
-Runs on Windows, Linux and Android. Works with the QIDI Plus4 and QIDI Max4
-(tested by the author) and the QIDI Q2 (tested by a community member on
-firmware v1.1.1 with one QIDI Box; firmware v1.1.2 is untested). The Q2 does
-not report its box data through `multi_color_controller`: the app reads it
-from `save_variables` and the printer's own filament list instead, and the
-spool numbers on a Q2 come from the Klipper module `rfid_bridge.py`.
+Runs on Windows, Linux and Android. Works with the QIDI Plus4 (tested by the
+author with firmware 1.8.2), the QIDI Max4 (firmware 01.01.06.05) and the
+QIDI Q2 (tested by a community member on firmware v1.1.1 with one QIDI Box;
+firmware v1.1.2 is untested). Other firmware versions have not been checked.
+The Q2 does not report its box data through `multi_color_controller`: the
+app reads it from `save_variables` and the printer's own filament list
+instead, and the spool numbers on a Q2 come from the Klipper module
+`rfid_bridge.py`.
 Implemented so far:
 
 - Splash screen with the logo while the app starts up.
@@ -332,8 +334,11 @@ in `moonraker.conf`.
 It caches the last RFID read of every slot and reports the spool number of
 whichever slot is currently active: whenever a different slot becomes active
 (e.g. on a tool change), whenever a read arrives for the active slot, and
-again whenever a print job starts (detected by polling
-`print_stats`, since Klipper has no dedicated print-start event). The HTTP
+again when a print job starts (detected by polling
+`print_stats`, since Klipper has no dedicated print-start event): that
+report waits until the box activates the slot the print uses (fallback after
+2 minutes) and is skipped when the box is switched off (`enable_box` = 0 in
+`save_variables`), so an external spool selected in Fluidd stays selected. The HTTP
 call runs on a background thread via a queue so a slow or unreachable
 Moonraker never blocks the reactor; an unset/blank tag is reported as
 `spool_id: null`, clearing the active spool. Verified against a live
