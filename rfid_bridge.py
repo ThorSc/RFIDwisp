@@ -78,7 +78,7 @@ import mcu as mcu_module
 # by hand. The release workflow refuses a changed file with an unchanged
 # version or a lower one than the last release
 # (scripts/check_bridge_version.py).
-RFID_BRIDGE_VERSION = "1.1.3"
+RFID_BRIDGE_VERSION = "1.1.4"
 
 
 def _own_checksum():
@@ -111,6 +111,11 @@ EMPTY_READ_THRESHOLD = 3
 # seconds (see _handle_raw_read). The box repeats a read 5-8 s later.
 UNCONFIRMED_READ_WINDOW = 30.0
 
+# A print start is reported when the box activates its first slot. If that
+# does not happen within this many seconds (and the box is not switched off),
+# the spool of the last active slot is reported as a fallback.
+PRINT_START_REPORT_TIMEOUT = 120.0
+
 
 class RFIDBridge:
     def __init__(self, config):
@@ -139,6 +144,7 @@ class RFIDBridge:
         self.last_report_time = None
         self.last_report_reason = None
         self._print_state = None
+        self._print_start_time = None  # reactor time of a print start not yet reported
         self._notify_queue = queue.Queue()
         self._notify_thread = threading.Thread(
             target=self._notify_worker, daemon=True)
@@ -396,7 +402,13 @@ class RFIDBridge:
                 # Every slot's tag was read (and cached in last_raw) at
                 # startup; now that this slot is the active one, report
                 # *its* spool instead of whichever slot was read last.
-                self._report_active_slot(reason="slot_active")
+                if self._print_start_time is not None:
+                    self._print_start_time = None
+                    if self._box_enabled():
+                        self._report_active_slot(reason="print_start_slot",
+                                                 force=True)
+                else:
+                    self._report_active_slot(reason="slot_active")
             except Exception:
                 logging.exception("rfid_bridge: error reporting active slot")
         return callback
@@ -414,11 +426,40 @@ class RFIDBridge:
         except Exception:
             state = None
         if state == 'printing' and self._print_state != 'printing':
-            self._on_print_start()
+            self._on_print_start(eventtime)
+        elif (self._print_start_time is not None
+                and eventtime - self._print_start_time
+                >= PRINT_START_REPORT_TIMEOUT):
+            self._print_start_time = None
+            self._report_print_start_fallback()
+        if state != 'printing':
+            self._print_start_time = None
         self._print_state = state
         return eventtime + 2.0
 
-    def _on_print_start(self):
+    def _box_enabled(self):
+        """False only when save_variables says the box is switched off
+        (enable_box = 0, external spool); True when unknown."""
+        try:
+            sv = self.printer.lookup_object('save_variables')
+            return sv.allVariables.get('enable_box', 1) != 0
+        except Exception:
+            return True
+
+    def _on_print_start(self, eventtime):
+        # Do not report the last active slot's spool now: with the box
+        # switched off that would overwrite the external spool the user
+        # selected, and with the box on it is the wrong slot anyway. The
+        # report follows when the box activates the slot the print uses.
+        self._print_start_time = eventtime
+        logging.info("rfid_bridge: print started, waiting for the first "
+                     "active slot")
+
+    def _report_print_start_fallback(self):
+        if not self._box_enabled():
+            logging.info("rfid_bridge: print start without box (enable_box "
+                         "= 0), keeping the selected spool")
+            return
         self._report_active_slot(reason="print_start", force=True)
 
     def _report_active_slot(self, reason, force=False):
