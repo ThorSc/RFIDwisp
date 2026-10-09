@@ -5,6 +5,15 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.3] - 2026-10-09
+
+### Fixed
+
+- Android: reading a tag failed with "The tag could not be opened" on a Galaxy S25
+  Ultra (Android 16, error "Call connect() first!"). NFC reader mode is now kept on
+  until the tag has been read or written, and a lost tag is reported with the
+  real error instead of an empty message.
+
 ## [0.8.2] - 2026-10-08
 
 ### Fixed
