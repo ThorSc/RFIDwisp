@@ -11,6 +11,8 @@ The desktop versions are portable downloads - no installation is required.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
+User manual (PDF): [Deutsch](docs/UserManual_de-DE.pdf) | [English](docs/UserManual_en-US.pdf)
+
 ## Downloads
 
 Each release provides one archive per platform - grab yours from the
@@ -277,7 +279,7 @@ Implemented so far:
 7. **File → Exit** closes the app (desktop only), **Help → About** shows
    version and license information.
 
-## Klipper integration (`rfid_bridge`)boo
+## Klipper integration (`rfid_bridge`)
 
 To have your QIDI printer capture the raw RFID payload of each loaded spool
 during printing (so it can be correlated with the tag data written by the app)
@@ -336,13 +338,25 @@ whichever slot is currently active: whenever a different slot becomes active
 (e.g. on a tool change), whenever a read arrives for the active slot, and
 again when a print job starts (detected by polling
 `print_stats`, since Klipper has no dedicated print-start event): that
-report waits until the box activates the slot the print uses (fallback after
-2 minutes) and is skipped when the box is switched off (`enable_box` = 0 in
+report waits until the box activates the slot the print uses (fallback 2
+minutes after hotend and bed have reached their target, 10 minutes after the
+print start at the latest; until then the spool of the previously active slot
+stays reported while the printer heats) and is skipped when the box is switched off (`enable_box` = 0 in
 `save_variables`), so an external spool selected in Fluidd stays selected. The HTTP
 call runs on a background thread via a queue so a slow or unreachable
 Moonraker never blocks the reactor; an unset/blank tag is reported as
 `spool_id: null`, clearing the active spool. Verified against a live
 Moonraker/Fluidd/Spoolman stack (Moonraker v0.8.0).
+
+**While the printer heats, the old spool may still be shown.** The box
+activates the first slot of a print only after the hotend and bed have
+heated up, and only then does `rfid_bridge` learn which slot (and spool) the
+print uses. Until then, Fluidd and Spoolman keep showing the spool that was
+active before. This is expected and harmless, because filament is only
+extruded (and booked) after the slot has been activated. If the box does not
+activate a slot at all, the bridge reports the previously active spool 2
+minutes after hotend and bed have reached their target (10 minutes after the
+print start at the latest).
 
 The print-start report only has data to send if `rfid_bridge` has already
 captured a fresh RFID read for the active slot. Enable the QIDI BOX's own
@@ -359,6 +373,34 @@ it runs later in the print than `rfid_bridge`'s own report and will silently
 overwrite the RFID-derived spool with whatever fixed ID is hardcoded in the
 filament profile.
 
+**After a start, a slot can stay without a spool number.** While it reads all
+slots at startup, the box sometimes returns the tag of the neighbouring slot
+instead of the tag of the slot it is about to activate (seen on a Plus4:
+slot 1 returned the tag of slot 0, after the Klipper service restart and
+after a cold start). The firmware then shows the neighbour's data for that
+slot in the display and in Fluidd, and `rfid_bridge` has no read of its own
+for it, so no spool number is reported for that slot (the slot is not
+assigned the neighbour's number). Remove the spool from that slot and load it
+again, or press **"Re read filament information"** for the slot (only while
+its filament is not fed through the box hub). Afterwards the display, Fluidd
+and the app show the right spool. The cause is the box's behaviour; the
+bridge cannot read a tag that the box does not deliver.
+
+**Start G-code: pass the first slot to the printer.** The print-start report
+follows the slot the box actually loads first, so the slicer must tell the
+printer which slot that is. On QIDI printers `PRINT_START` takes an
+`EXTRUDER=` parameter that defaults to 0; if the start G-code leaves it out,
+the box loads slot 0 first even when the first colour of the print is on
+another slot (T4, for example), and the spool of slot 0 is booked. In
+Orca-based slicers (QIDI Studio, OrcaSlicer) add the placeholder
+`EXTRUDER=[initial_no_support_extruder]` to the end of the existing
+`PRINT_START` line of the machine start G-code, for example
+`PRINT_START BED=... HOTEND=... CHAMBER=... EXTRUDER=[initial_no_support_extruder]`.
+
+Some profiles call `BOX_PRINT_START` directly and already pass
+`EXTRUDER=[initial_no_support_extruder]` (for example the Max4 profile);
+nothing needs to be added there.
+
 ### Slot presence
 
 `rfid_bridge` knows whether a spool is in a slot from the per-slot runout
@@ -372,13 +414,18 @@ without a material or color (byte 0 or 1 is zero: only part of the block
 arrived), is not a tag and counts as a failed read. A tag that differs from the cached one of a slot that still holds a spool
 is held until it is read a second time within 30 seconds: the box reads a
 newly inserted spool before it switches to that slot, so the first read can
-belong to another slot. Presence per slot is shown in
+belong to another slot. The same applies to a slot without a cached tag that reads
+exactly the tag another occupied slot already holds. If a tag is confirmed for a slot
+and another slot holds the same tag that was read only once, that cached tag was most likely
+a neighbour's read and is forgotten; two spools that really carry the same spool number
+are read twice in both slots and stay untouched. Presence per slot is shown in
 `RFID_BRIDGE_STATUS` and as `slot_occupied` in the Moonraker object.
 
 Optional settings in the `[rfid_bridge]` section of `printer.cfg`:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| `box_stepper_count` | `4` | Minimum number of slots to track. With several boxes the slots are numbered on (box 2 = slots 4-7, ...); the bridge finds them itself, up to 4 boxes (16 slots), so the value does not need to be raised. |
 | `runout_present_value` | `0` | Value of `runout_button` that means "filament present". `0` is confirmed on the Q2, Plus4 and Max4. |
 | `ignore_reads_on_empty_slot` | `True` | Ignore RFID reads attributed to a slot the sensor reports as empty. |
 | `occupancy_poll_interval` | `0.5` | How often (seconds) the sensors are polled. |
