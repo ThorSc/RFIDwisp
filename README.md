@@ -4,7 +4,7 @@ A cross-platform (Windows/Linux/Android) app for reading and writing the
 MIFARE Classic 1K RFID tags used by QIDI's multi-color filament boxes (the
 QIDI Boxes that are connected to QIDI Plus4, QIDI Max4 and QIDI Q2 printers).
 In addition to the data that are used by QIDI you can add and manage information about manufacturers, colors, and remaining weights of filament from [Spoolman](https://github.com/Donkie/Spoolman). And the RFID bridge makes sure that every time the correct spool data are handled by the printer and Fluidd UI.
-Also check out the [RFID Wisp Terminal](https://github.com/ThorSc/RFIDWisp-ESP32) to read and write the RFID tags for your filament spools.
+Also check out the [RFID Wisp Terminal](https://github.com/ThorSc/RFIDwisp-Terminal) to read and write the RFID tags for your filament spools.
 
 This repository hosts only the built releases; there is no source code here.
 The desktop versions are portable downloads - no installation is required.
