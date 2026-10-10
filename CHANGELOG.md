@@ -5,6 +5,37 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.4] - 2026-10-10
+
+Operation with several QIDI boxes (preview): tested on a Plus4 with two boxes and on a Plus4
+and a Max4 with one box. `rfid_bridge.py` is now version 1.1.7. The QIDI Q2 has not been tested with it yet.
+
+### Changed
+
+- Documentation: the Klipper integration chapter now explains that the slicer's start G-code
+  has to pass `EXTRUDER=[initial_no_support_extruder]` to `PRINT_START` (QIDI's default is
+  slot 0), so the box loads the first colour's slot first and the right spool is booked. It also
+  notes that the previously active spool can still be shown while the printer heats, and that a
+  slot can stay without a spool number after a start when the box returns its neighbour's tag
+  (unload and reload the spool, or use "Re read filament information").
+
+### Fixed
+
+- `rfid_bridge.py`: the fallback of the print-start report (the box does not activate a slot)
+  now waits until hotend and bed have reached their target, then 2 minutes, 10 minutes at most.
+  Before, it counted 2 minutes from the print start and could report the previously active
+  spool while the printer was still heating.
+- `rfid_bridge.py`: with several QIDI boxes the bridge now tracks the slots of every box
+  (box 2 = slots 4-7, up to 16 slots) even with `box_stepper_count: 4`. Before, it ignored
+  the tags and spool changes of the further boxes, so the app showed no spool numbers and no
+  Spoolman data for them.
+- `rfid_bridge.py`: with two boxes a slot could keep the spool number of its neighbour after
+  a cold start or a hot insertion (the box reads the neighbour's tag before it switches to the
+  inserted slot). A tag that another occupied slot already holds is now accepted only when it is
+  read twice, and a copy that was read only once is forgotten when the neighbour confirms it.
+- QIDI Data frame: selecting another box in the box list now reads its slots right away
+  instead of showing empty slots until **Read** is pressed.
+
 ## [0.8.3] - 2026-10-09
 
 ### Fixed
