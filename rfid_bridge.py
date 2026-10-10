@@ -78,7 +78,7 @@ import mcu as mcu_module
 # by hand. The release workflow refuses a changed file with an unchanged
 # version or a lower one than the last release
 # (scripts/check_bridge_version.py).
-RFID_BRIDGE_VERSION = "1.1.4"
+RFID_BRIDGE_VERSION = "1.1.7"
 
 
 def _own_checksum():
@@ -112,9 +112,20 @@ EMPTY_READ_THRESHOLD = 3
 UNCONFIRMED_READ_WINDOW = 30.0
 
 # A print start is reported when the box activates its first slot. If that
-# does not happen within this many seconds (and the box is not switched off),
-# the spool of the last active slot is reported as a fallback.
+# does not happen (and the box is not switched off), the spool of the last
+# active slot is reported as a fallback after PRINT_START_REPORT_TIMEOUT
+# seconds. The clock only starts once hotend and bed are at their target
+# (within PRINT_START_HEAT_TOLERANCE degrees), because the box activates the
+# first slot only after heating; the wait for that is limited to
+# PRINT_START_REPORT_MAX_WAIT seconds from the print start. Without heater
+# objects the 120 s count from the print start.
 PRINT_START_REPORT_TIMEOUT = 120.0
+PRINT_START_REPORT_MAX_WAIT = 600.0
+PRINT_START_HEAT_TOLERANCE = 3.0
+
+# Four QIDI boxes with four slots each; the slots of all boxes are numbered
+# on (box 2 = slots 4-7, ...).
+MAX_SLOTS = 16
 
 
 class RFIDBridge:
@@ -137,6 +148,7 @@ class RFIDBridge:
         self._slot_occupied = {}       # slot(int) -> bool, last known sensor state
         self._ignored_logged = set()   # slots whose ignored read was logged
         self._unconfirmed = {}         # slot(int) -> (raw, time) of a differing read
+        self._verified = set()         # slots whose cached tag was read twice
         self._pending_slots = set(range(self.slot_count))
         self._registered_slots = set()
 
@@ -145,6 +157,7 @@ class RFIDBridge:
         self.last_report_reason = None
         self._print_state = None
         self._print_start_time = None  # reactor time of a print start not yet reported
+        self._print_heated_time = None  # reactor time hotend and bed reached their target
         self._notify_queue = queue.Queue()
         self._notify_thread = threading.Thread(
             target=self._notify_worker, daemon=True)
@@ -228,8 +241,20 @@ class RFIDBridge:
         self._ignored_logged.discard(slot)
         now = self.printer.get_reactor().monotonic()
         cached = self.last_raw.get(slot)
-        if cached is None or cached == raw:
+        # A slot without a cached tag that reads exactly the tag another
+        # occupied slot already holds: most likely that neighbour's spool
+        # read for the wrong slot (seen on a cold start and on a hot
+        # insertion on a printer with two boxes). Treat it like a
+        # differing read and wait for a second one. A genuine duplicate
+        # (the same spool number written to two spools) is confirmed by
+        # the repeated read the box makes anyway.
+        duplicate_of = None
+        if cached is None:
+            duplicate_of = self._tag_of_other_slot(slot, raw)
+        confirmed = False
+        if (cached is None or cached == raw) and duplicate_of is None:
             self._unconfirmed.pop(slot, None)
+            confirmed = cached == raw
         else:
             # A different tag for a slot that still holds a cached one. A
             # spool swap needs a removal first, which clears the cache, so
@@ -241,16 +266,56 @@ class RFIDBridge:
             if (pending is None or pending[0] != raw
                     or now - pending[1] > UNCONFIRMED_READ_WINDOW):
                 self._unconfirmed[slot] = (raw, now)
-                logging.info(
-                    "rfid_bridge: slot%d read differs from cached tag, "
-                    "waiting for a second read (raw=%s)", slot, raw.hex())
+                if duplicate_of is not None:
+                    logging.info(
+                        "rfid_bridge: slot%d read equals the tag of slot%d, "
+                        "waiting for a second read (raw=%s)",
+                        slot, duplicate_of, raw.hex())
+                else:
+                    logging.info(
+                        "rfid_bridge: slot%d read differs from cached tag, "
+                        "waiting for a second read (raw=%s)", slot, raw.hex())
                 return
             del self._unconfirmed[slot]
+            confirmed = True
+        if confirmed:
+            self._verified.add(slot)
+            self._drop_unverified_copies(slot, raw)
+        else:
+            self._verified.discard(slot)
         self.last_raw[slot] = raw
         self.last_raw_time[slot] = now
         self._empty_read_count[slot] = 0
         logging.info("rfid_bridge: slot%d raw=%s", slot, raw.hex())
         self._maybe_report_spool(slot, raw, reason="slot_read")
+
+    def _drop_unverified_copies(self, slot, raw):
+        """A tag was read twice for this slot. If another slot holds the
+        same tag in its cache but never had it confirmed, that cache is
+        most likely a neighbour's tag read for the wrong slot (cold start:
+        the neighbour had no cache yet, so nothing held it). Forget it, so
+        the next read of that slot is accepted without waiting. A real
+        duplicate (same spool number on two spools) is read twice for both
+        slots and stays untouched."""
+        for other in list(self.last_raw):
+            if (other != slot and self.last_raw[other] == raw
+                    and other not in self._verified
+                    and self._slot_occupied.get(other) is not False):
+                logging.info(
+                    "rfid_bridge: slot%d tag equals the confirmed tag of "
+                    "slot%d and was read only once, forgetting it", other,
+                    slot)
+                del self.last_raw[other]
+                self.last_raw_time.pop(other, None)
+
+    def _tag_of_other_slot(self, slot, raw):
+        """Number of another slot whose cached tag equals raw and whose
+        spool is still there (sensor not known to be empty), else None."""
+        for other, tag in self.last_raw.items():
+            if (other != slot and tag == raw
+                    and self._slot_occupied.get(other) is not False):
+                return other
+        return None
 
     def _handle_failed_read(self, status):
         """A read for the active slot came back without a tag.
@@ -298,8 +363,29 @@ class RFIDBridge:
         reactor.register_timer(self._poll_print_state, reactor.NOW)
         reactor.register_timer(self._poll_slot_occupancy, reactor.NOW)
 
+    def _discover_slots(self, stepper_enable):
+        """Grow slot_count to the slots the printer really has.
+
+        The slots of all boxes are numbered on (box 2 = slots 4-7, ...), so
+        a printer with several boxes needs more than the configured
+        box_stepper_count. box_stepper_count is only the minimum.
+        """
+        for slot in range(self.slot_count, MAX_SLOTS):
+            for candidate in ("box_stepper slot%d" % slot, "slot%d" % slot):
+                try:
+                    stepper_enable.lookup_enable(candidate)
+                except Exception:
+                    continue
+                for new in range(self.slot_count, slot + 1):
+                    self._pending_slots.add(new)
+                logging.info("rfid_bridge: found '%s', tracking %d slots",
+                             candidate, slot + 1)
+                self.slot_count = slot + 1
+                break
+
     def _try_register_slots(self, eventtime):
         stepper_enable = self.printer.lookup_object('stepper_enable')
+        self._discover_slots(stepper_enable)
         for slot in list(self._pending_slots):
             # Older QIDI firmware registers the stepper as "box_stepper
             # slotN", newer firmware (Max4 01.01.06.05) as plain "slotN".
@@ -317,9 +403,12 @@ class RFIDBridge:
             self._pending_slots.discard(slot)
             self._registered_slots.add(slot)
             logging.info("rfid_bridge: registered '%s'", name)
-        if not self._pending_slots:
-            return self.printer.get_reactor().NEVER
-        return eventtime + 2.0
+        if self._pending_slots:
+            return eventtime + 2.0
+        if self.slot_count < MAX_SLOTS:
+            # The slots of a further box may appear after the first ones.
+            return eventtime + 10.0
+        return self.printer.get_reactor().NEVER
 
     def _read_slot_presence(self, slot, eventtime):
         """True = filament present, False = empty, None = unknown.
@@ -404,6 +493,7 @@ class RFIDBridge:
                 # *its* spool instead of whichever slot was read last.
                 if self._print_start_time is not None:
                     self._print_start_time = None
+                    self._print_heated_time = None
                     if self._box_enabled():
                         self._report_active_slot(reason="print_start_slot",
                                                  force=True)
@@ -428,14 +518,52 @@ class RFIDBridge:
         if state == 'printing' and self._print_state != 'printing':
             self._on_print_start(eventtime)
         elif (self._print_start_time is not None
-                and eventtime - self._print_start_time
-                >= PRINT_START_REPORT_TIMEOUT):
+                and self._print_start_fallback_due(eventtime)):
             self._print_start_time = None
+            self._print_heated_time = None
             self._report_print_start_fallback()
         if state != 'printing':
             self._print_start_time = None
+            self._print_heated_time = None
         self._print_state = state
         return eventtime + 2.0
+
+    def _print_start_fallback_due(self, eventtime):
+        """True when the print start report has waited long enough for the
+        box to activate its first slot (see PRINT_START_REPORT_TIMEOUT)."""
+        waited = eventtime - self._print_start_time
+        if waited >= PRINT_START_REPORT_MAX_WAIT:
+            return True
+        if self._print_heated_time is None:
+            heated = self._heaters_at_target(eventtime)
+            if heated is None:
+                return waited >= PRINT_START_REPORT_TIMEOUT
+            if not heated:
+                return False
+            self._print_heated_time = eventtime
+        return eventtime - self._print_heated_time >= PRINT_START_REPORT_TIMEOUT
+
+    def _heaters_at_target(self, eventtime):
+        """True when the hotend (target set) and the bed (if it has a target)
+        are within PRINT_START_HEAT_TOLERANCE of their target, False while
+        heating, None when the heater objects are not available."""
+        try:
+            hotend = self.printer.lookup_object('extruder').get_status(
+                eventtime)
+            hotend_ok = (hotend['target'] > 0 and abs(
+                hotend['temperature'] - hotend['target'])
+                <= PRINT_START_HEAT_TOLERANCE)
+            try:
+                bed = self.printer.lookup_object('heater_bed').get_status(
+                    eventtime)
+            except Exception:
+                bed = None
+            bed_ok = (bed is None or bed['target'] <= 0 or abs(
+                bed['temperature'] - bed['target'])
+                <= PRINT_START_HEAT_TOLERANCE)
+            return bool(hotend_ok and bed_ok)
+        except Exception:
+            return None
 
     def _box_enabled(self):
         """False only when save_variables says the box is switched off
