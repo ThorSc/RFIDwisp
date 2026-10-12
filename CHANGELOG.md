@@ -5,6 +5,20 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.5] - 2026-10-12
+
+Re-reading a slot from the app, and a closer look at the slot that stays without a spool number after a start.
+`rfid_bridge.py` is now version 1.1.8 (more log lines, no change in behaviour).
+
+### Added
+
+- QIDI Data frame: a button next to each loaded slot (not the active one) makes the box read that slot's tag again, after a confirmation. It sends the firmware's own `RFID_READ SLOT=slotN` G-code through Moonraker, the same as "Re read filament information" on the printer, and then reads the box data again. This is the way out when a slot got its neighbour's tag at the start of the printer. It is refused during a print and while the box is already reading the slot. The box moves the filament of the slot for about half a minute meanwhile.
+
+### Changed
+
+- `rfid_bridge.py`: the Klipper log now also records when the box switches slots (`slotN stepper enabled/disabled`), reads that cannot be attributed to a slot because none is active yet (the first ten), and the first failed read of a slot. The behaviour is unchanged; the lines help to find out why a slot (seen on a Plus4: slot 1) stays without a spool number after a start.
+- Documentation: the Klipper integration chapter now explains why a slot can get its neighbour's tag at a start: two slots share one RFID reader and QIDI's firmware accepts the first two identical reads without checking that the tag belongs to the slot. Tests showed that the resting position of the neighbouring spool decides: with its tag stuck on 180 degrees away, or after the spool was taken out and put back, the slot was read correctly; turning or re-seating the spool before the start is the first thing to try.
+
 ## [0.8.4] - 2026-10-10
 
 Operation with several QIDI boxes (preview): tested on a Plus4 with two boxes and on a Plus4
