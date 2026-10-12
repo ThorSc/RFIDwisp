@@ -374,17 +374,42 @@ overwrite the RFID-derived spool with whatever fixed ID is hardcoded in the
 filament profile.
 
 **After a start, a slot can stay without a spool number.** While it reads all
-slots at startup, the box sometimes returns the tag of the neighbouring slot
-instead of the tag of the slot it is about to activate (seen on a Plus4:
-slot 1 returned the tag of slot 0, after the Klipper service restart and
-after a cold start). The firmware then shows the neighbour's data for that
-slot in the display and in Fluidd, and `rfid_bridge` has no read of its own
-for it, so no spool number is reported for that slot (the slot is not
-assigned the neighbour's number). Remove the spool from that slot and load it
-again, or press **"Re read filament information"** for the slot (only while
-its filament is not fed through the box hub). Afterwards the display, Fluidd
-and the app show the right spool. The cause is the box's behaviour; the
-bridge cannot read a tag that the box does not deliver.
+slots at startup, the box sometimes stores the tag of the neighbouring slot
+for the slot it is about to activate (seen on a Plus4: slot 1 got the tag of
+slot 0, after the Klipper service restart and after a cold start). The firmware
+then shows the neighbour's data for that slot in the display and in Fluidd, and
+`rfid_bridge` has no read of its own for it, so no spool number is reported for
+that slot (the slot is not assigned the neighbour's number). Remove the spool
+from that slot and load it again, or press **"Re read filament information"**
+for the slot (only while its filament is not fed through the box hub), or use
+the re-read button next to the slot in the app's QIDI Data frame, which sends
+the same command. Afterwards the display, Fluidd and the app show the right
+spool.
+
+The cause lies in QIDI's firmware, not in the bridge. According to QIDI's code
+for the box, two slots share one RFID reader (slots 0 and 1 the first, slots 2
+and 3 the second). When the firmware reads a slot, it starts polling the reader
+before it moves that slot's spool and accepts the first two identical reads as
+the tag of that slot, without checking that the tag belongs to it. If the
+neighbouring spool still rests with its tag in the reader's field, its tag is
+read twice and stored for the slot within a fraction of a second. Whether that
+happens depends on where the neighbour's tag came to rest, which is why it
+appears on one printer and not on another, and only at some starts. The bridge
+only observes these reads (and files them under the slot that is still
+active); it cannot read a tag that the box does not deliver.
+
+Tests on two Plus4 printers support this. On one of them the error occurred at
+eight cold starts in a row; after the tag of the spool in slot 0 was stuck on again
+about 180 degrees away from its old place, slot 1 was read correctly at two cold
+starts, and with the tag back in its old place the error returned. On the other
+printer the same set-up of spools showed the error at one cold start and not at the
+next, after the spools had been taken out and put back in between. So it is the
+resting position of the neighbouring spool in its holder that decides, not a fixed
+place on the spool. If a slot regularly lacks its number after a start, take the
+spool of the neighbouring slot of the same reader (slot 0 for slot 1, slot 2 for
+slot 3) out, put it back in, or turn it a little before the start; moving its tag
+to another place on the spool has the same effect. With the spool in slot 2 and
+slot 3 behind it the error did not occur in one cold start.
 
 **Start G-code: pass the first slot to the printer.** The print-start report
 follows the slot the box actually loads first, so the slicer must tell the
