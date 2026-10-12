@@ -78,7 +78,7 @@ import mcu as mcu_module
 # by hand. The release workflow refuses a changed file with an unchanged
 # version or a lower one than the last release
 # (scripts/check_bridge_version.py).
-RFID_BRIDGE_VERSION = "1.1.7"
+RFID_BRIDGE_VERSION = "1.1.8"
 
 
 def _own_checksum():
@@ -151,6 +151,7 @@ class RFIDBridge:
         self._verified = set()         # slots whose cached tag was read twice
         self._pending_slots = set(range(self.slot_count))
         self._registered_slots = set()
+        self._no_slot_logged = 0       # reads dropped before any slot was active
 
         self.last_reported_spool_id = None  # int or None
         self.last_report_time = None
@@ -204,6 +205,9 @@ class RFIDBridge:
 
     def _handle_raw_read(self, data):
         if self.current_slot is None or data is None:
+            self._log_dropped_read("read ignored, %s" % (
+                "no active slot yet" if self.current_slot is None
+                else "no data"))
             return
         raw = bytes(data)
         slot = self.current_slot
@@ -317,6 +321,15 @@ class RFIDBridge:
                 return other
         return None
 
+    def _log_dropped_read(self, text):
+        """Log a read that could not be attributed to a slot. Only the
+        first few: the box may poll before it has activated any slot."""
+        self._no_slot_logged += 1
+        if self._no_slot_logged <= 10:
+            logging.info("rfid_bridge: %s", text)
+        elif self._no_slot_logged == 11:
+            logging.info("rfid_bridge: further dropped reads are not logged")
+
     def _handle_failed_read(self, status):
         """A read for the active slot came back without a tag.
 
@@ -329,9 +342,14 @@ class RFIDBridge:
         """
         slot = self.current_slot
         if slot is None:
+            self._log_dropped_read(
+                "failed read ignored, no active slot yet (status=%s)" % status)
             return
         count = self._empty_read_count.get(slot, 0) + 1
         self._empty_read_count[slot] = count
+        if count == 1:
+            logging.info("rfid_bridge: slot%d read failed (status=%s)",
+                         slot, status)
         if count < EMPTY_READ_THRESHOLD:
             return
         if slot not in self.last_raw:
@@ -484,6 +502,12 @@ class RFIDBridge:
 
     def _make_callback(self, slot):
         def callback(print_time, is_enable):
+            # Which slot the box has switched to decides which slot a read
+            # is attributed to (_handle_raw_read), so log every switch.
+            logging.info(
+                "rfid_bridge: slot%d stepper %s (active slot was %s)",
+                slot, "enabled" if is_enable else "disabled",
+                self.current_slot)
             if not is_enable:
                 return
             self.current_slot = slot
