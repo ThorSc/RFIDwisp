@@ -5,6 +5,12 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.6] - 2026-10-19
+
+### Changed
+
+- QIDI Data frame: if the printer has its box switched off (`enable_box = 0`, which a print from the external spool leaves behind and the QIDI Q2 keeps across a power cycle), the app now says so under the printer name, with a hint to switch it on again on the printer. Before, the box list and the read button were just greyed out. Thanks to tranbert for the suggestion (issue 3).
+
 ## [0.8.5] - 2026-10-12
 
 Re-reading a slot from the app, and a closer look at the slot that stays without a spool number after a start.
