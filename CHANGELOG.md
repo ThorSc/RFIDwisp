@@ -5,6 +5,12 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.7] - 2026-10-19
+
+### Fixed
+
+- QIDI Data frame: after the Max4 firmware update to 01.01.07.01 material and color were empty and the vendor only said "QIDI". The new firmware no longer reports `multi_color_controller.slots`, and its `save_variables` hold text IDs instead of numbers. The app now reads the resolved names from `multi_color_controller.box` (`boxN_filament_info_M_*`). Firmware 01.01.06.01 and the QIDI Q2 are read as before: the new data is only used when `slots` is missing.
+
 ## [0.8.6] - 2026-10-19
 
 ### Changed
