@@ -5,6 +5,17 @@ All notable changes to RFID Wisp are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.8] - 2026-10-26
+
+### Fixed
+
+- Re-read slot: printers with newer firmware (X-Max 4 01.01.07.01) renamed the command and ignore the old one, while the Plus4 (2.1.1) still reads with the old name and ignores the new one. The app now always sends `RFID_READ SLOT=slot<n>` and, if the printer knows `READ_RFID`, `READ_RFID SLOT=<n>` after it.
+- Slot overview: the weight of a spool created in Spoolman after the app was started stayed empty when the printer was selected. The weights are now reloaded every time the box is read.
+
+### Changed
+
+- Update dialog: if the installation fails, the technical reason the system gave is shown under the message, so it can be copied into an issue. Before, only the general text appeared.
+
 ## [0.8.7] - 2026-10-19
 
 ### Fixed
